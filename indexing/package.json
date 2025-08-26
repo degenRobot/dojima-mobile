@@ -1,0 +1,35 @@
+{
+  "name": "indexing",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "ponder dev",
+    "start": "ponder start",
+    "db": "ponder db",
+    "codegen": "ponder codegen",
+    "lint": "eslint .",
+    "typecheck": "tsc",
+    "test": "node test-indexer.js",
+    "test:integration": "node test-indexer.js",
+    "test:vitest": "vitest",
+    "test:ci": "node test-indexer.js"
+  },
+  "dependencies": {
+    "ponder": "^0.11.34",
+    "hono": "^4.5.0",
+    "viem": "^2.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.9.0",
+    "eslint": "^8.53.0",
+    "eslint-config-ponder": "^0.11.34",
+    "typescript": "^5.2.2",
+    "vitest": "^1.0.0",
+    "graphql-request": "^6.1.0",
+    "graphql": "^16.8.0"
+  },
+  "engines": {
+    "node": ">=18.14"
+  }
+}

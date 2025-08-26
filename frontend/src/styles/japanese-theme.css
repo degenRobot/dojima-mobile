@@ -1,0 +1,176 @@
+/* Dojima Japanese-Inspired Theme */
+:root {
+  /* Primary Colors - Inspired by traditional Japanese art */
+  --dojima-red: #8B0000;
+  --dojima-deep-red: #660000;
+  --dojima-light-red: #DC143C;
+  --dojima-black: #1a1a1a;
+  --dojima-gold: #D4AF37;
+  --dojima-paper: #FFF8E7;
+  --dojima-gray: #4a4a4a;
+  --dojima-light-gray: #e5e5e5;
+  
+  /* Gradients inspired by woodblock prints */
+  --dojima-sunset: linear-gradient(180deg, #FF6B6B 0%, #8B0000 100%);
+  --dojima-mountain: linear-gradient(180deg, #1a1a1a 0%, #4a4a4a 100%);
+  --dojima-wave: linear-gradient(135deg, #1a1a1a 0%, #2c3e50 50%, #34495e 100%);
+  
+  /* Shadows */
+  --dojima-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --dojima-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --dojima-shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  --dojima-shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.1);
+}
+
+/* Traditional patterns as CSS backgrounds */
+.japanese-pattern {
+  background-image: 
+    repeating-linear-gradient(45deg, transparent, transparent 10px, 
+                              rgba(139, 0, 0, 0.05) 10px, rgba(139, 0, 0, 0.05) 20px);
+}
+
+.wave-pattern {
+  background-image: 
+    radial-gradient(circle at 10% 20%, rgba(139, 0, 0, 0.03) 0%, transparent 40%),
+    radial-gradient(circle at 80% 80%, rgba(139, 0, 0, 0.03) 0%, transparent 40%),
+    radial-gradient(circle at 40% 40%, rgba(212, 175, 55, 0.03) 0%, transparent 40%);
+}
+
+/* Typography */
+.japanese-heading {
+  font-family: 'Inter', sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-foreground);
+}
+
+.japanese-subheading {
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--color-text-secondary);
+}
+
+/* Card styles with Japanese aesthetic */
+.japanese-card {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: var(--dojima-shadow-md);
+  position: relative;
+  overflow: hidden;
+}
+
+.japanese-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--dojima-red);
+}
+
+/* Button styles */
+.japanese-button {
+  background: var(--color-button-bg-secondary);
+  color: var(--color-foreground);
+  border: none;
+  padding: 12px 24px;
+  border-radius: 6px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.japanese-button:hover {
+  background: var(--color-button-bg-secondary);
+  opacity: 0.8;
+  transform: translateY(-1px);
+  box-shadow: var(--dojima-shadow-lg);
+}
+
+.japanese-button-primary {
+  background: var(--color-button-bg-primary);
+  color: var(--color-primary-foreground);
+}
+
+.japanese-button-primary:hover {
+  background: var(--color-button-bg-primary);
+  opacity: 0.9;
+}
+
+/* Table styles */
+.japanese-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.japanese-table th {
+  background: var(--color-accent);
+  border-bottom: 2px solid var(--ukiyo-prussian);
+  padding: 12px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+
+.japanese-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.japanese-table tr:hover {
+  background: var(--color-accent);
+}
+
+/* Hero section styles */
+.hero-japanese {
+  position: relative;
+  min-height: 600px;
+  overflow: hidden;
+  background: var(--dojima-black);
+}
+
+.hero-background {
+  position: absolute;
+  inset: 0;
+  opacity: 0.3;
+  filter: sepia(20%) saturate(1.2);
+}
+
+.hero-content {
+  position: relative;
+  z-index: 10;
+  color: white;
+  padding: 4rem 2rem;
+}
+
+/* Animation keyframes */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.6s ease-out;
+}
+
+/* Responsive utilities */
+@media (max-width: 768px) {
+  .japanese-card {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+  
+  .hero-content {
+    padding: 2rem 1rem;
+  }
+}

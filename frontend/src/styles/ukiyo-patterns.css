@@ -1,0 +1,164 @@
+/* Ukiyo-e Inspired Patterns and Backgrounds */
+
+/* Seigaiha (Wave) Pattern */
+.pattern-seigaiha {
+  background-color: var(--color-background);
+  background-image: 
+    radial-gradient(circle at 100% 50%, transparent 20%, var(--ukiyo-prussian) 21%, var(--ukiyo-prussian) 34%, transparent 35%, transparent),
+    radial-gradient(circle at 0% 50%, transparent 20%, var(--ukiyo-prussian) 21%, var(--ukiyo-prussian) 34%, transparent 35%, transparent);
+  background-size: 50px 25px;
+  background-position: 0 0, 25px 0;
+  opacity: 0.02;
+}
+
+/* Asanoha (Hemp Leaf) Pattern */
+.pattern-asanoha {
+  background-color: var(--color-background);
+  background-image: 
+    linear-gradient(60deg, var(--ukiyo-prussian) 25%, transparent 25%, transparent 75%, var(--ukiyo-prussian) 75%, var(--ukiyo-prussian)),
+    linear-gradient(120deg, var(--ukiyo-prussian) 25%, transparent 25%, transparent 75%, var(--ukiyo-prussian) 75%, var(--ukiyo-prussian));
+  background-size: 20px 35px;
+  background-position: 0 0, 0 0;
+  opacity: 0.02;
+}
+
+/* Shippo (Seven Treasures) Pattern */
+.pattern-shippo {
+  background-color: var(--color-background);
+  background-image: 
+    radial-gradient(circle, transparent 20%, var(--ukiyo-prussian) 20%, var(--ukiyo-prussian) 23%, transparent 23%);
+  background-size: 40px 40px;
+  background-position: 0 0, 20px 20px;
+  opacity: 0.02;
+}
+
+/* Subtle gradient overlays */
+.gradient-overlay-top {
+  position: relative;
+}
+
+.gradient-overlay-top::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 200px;
+  background: linear-gradient(
+    180deg,
+    var(--ukiyo-mist) 0%,
+    transparent 100%
+  );
+  opacity: 0.05;
+  pointer-events: none;
+}
+
+.gradient-overlay-bottom {
+  position: relative;
+}
+
+.gradient-overlay-bottom::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 200px;
+  background: linear-gradient(
+    0deg,
+    var(--ukiyo-mist) 0%,
+    transparent 100%
+  );
+  opacity: 0.05;
+  pointer-events: none;
+}
+
+/* Mountain silhouette pattern */
+.pattern-mountain {
+  position: relative;
+  overflow: hidden;
+}
+
+.pattern-mountain::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 150px;
+  background: 
+    linear-gradient(135deg, transparent 50%, var(--ukiyo-indigo) 50%),
+    linear-gradient(-135deg, transparent 50%, var(--ukiyo-prussian) 50%);
+  background-size: 100px 100px;
+  background-position: left bottom, right bottom;
+  background-repeat: repeat-x;
+  opacity: 0.03;
+}
+
+/* Subtle paper texture */
+.texture-paper {
+  position: relative;
+}
+
+.texture-paper::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: 
+    repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(0,0,0,.01) 2px, rgba(0,0,0,.01) 4px),
+    repeating-linear-gradient(-45deg, transparent, transparent 2px, rgba(0,0,0,.01) 2px, rgba(0,0,0,.01) 4px);
+  pointer-events: none;
+}
+
+/* Decorative borders */
+.border-wave {
+  position: relative;
+  overflow: hidden;
+}
+
+.border-wave::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--ukiyo-prussian),
+    var(--ukiyo-prussian) 10px,
+    transparent 10px,
+    transparent 20px
+  );
+}
+
+/* Accent corners */
+.accent-corners {
+  position: relative;
+}
+
+.accent-corners::before,
+.accent-corners::after {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--ukiyo-vermillion);
+}
+
+.accent-corners::before {
+  top: -1px;
+  left: -1px;
+  border-right: none;
+  border-bottom: none;
+}
+
+.accent-corners::after {
+  bottom: -1px;
+  right: -1px;
+  border-left: none;
+  border-top: none;
+}

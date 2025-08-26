@@ -1,0 +1,116 @@
+# Test GraphQL Queries for CLOB Indexer
+
+# 1. Get all order history (no filter)
+query GetAllOrderHistory {
+  orderHistorys(limit: 10) {
+    items {
+      id
+      orderId
+      trader
+      isBuy
+      status
+      price
+      originalAmount
+      filledAmount
+      createdAt
+    }
+  }
+}
+
+# 2. Get active orders for the order book
+query GetActiveOrders {
+  activeOrders(
+    where: { market: "0xc9e995bd6d53833d2ec9f6d83d87737d3dcf9222" }
+    orderBy: "price"
+    orderDirection: "desc"
+    limit: 20
+  ) {
+    items {
+      id
+      orderId
+      trader
+      isBuy
+      price
+      originalAmount
+      remainingAmount
+    }
+  }
+}
+
+# 3. Get recent trades
+query GetRecentTrades {
+  trades(
+    where: { market: "0xc9e995bd6d53833d2ec9f6d83d87737d3dcf9222" }
+    orderBy: "timestamp"
+    orderDirection: "desc"
+    limit: 10
+  ) {
+    items {
+      id
+      price
+      amount
+      buyer
+      seller
+      timestamp
+    }
+  }
+}
+
+# 4. Get user's trades
+query GetUserTrades($trader: String!) {
+  userTrades(
+    where: { trader: $trader }
+    orderBy: "timestamp"
+    orderDirection: "desc"
+    limit: 20
+  ) {
+    items {
+      id
+      orderId
+      side
+      role
+      price
+      amount
+      fee
+      timestamp
+    }
+  }
+}
+
+# 5. Get open orders for a specific trader
+# This is tricky because we need to filter by trader relation
+query GetTraderOpenOrders {
+  orderHistorys(
+    where: { 
+      trader: "0xdd870fa1b7c4700f2bd7f44238821c26f7392148"
+      status_in: ["ACTIVE", "PARTIALLY_FILLED"]
+    }
+    limit: 10
+  ) {
+    items {
+      id
+      orderId
+      trader
+      status
+      price
+      originalAmount
+      filledAmount
+    }
+  }
+}
+
+# 6. Get account info
+query GetAccount($address: String!) {
+  account(address: $address) {
+    address
+    totalTradesCount
+    totalVolumeUsd
+    totalFeesPaid
+    orderHistory {
+      items {
+        orderId
+        status
+      }
+    }
+  }
+}

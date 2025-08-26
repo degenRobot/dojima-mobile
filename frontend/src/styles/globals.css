@@ -1,0 +1,313 @@
+@import "tailwindcss";
+@import "./keyframes.css";
+@import "./base/index.css";
+@import "./ukiyo-patterns.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-eyebrow: "Space Grotesk";
+  --font-headline: var(--font-fk-display);
+  --font-subtitle: var(--font-fk-grotesk);
+  --font-body: "Inter Tight";
+
+  /* Ukiyo-e Inspired Color Palette */
+  --ukiyo-prussian: #2E5090;      /* Prussian blue from Great Wave */
+  --ukiyo-indigo: #1E3A5F;        /* Deep indigo */
+  --ukiyo-vermillion: #E74C3C;   /* Soft red/vermillion */
+  --ukiyo-sakura: #FFB7C5;        /* Cherry blossom pink */
+  --ukiyo-cream: #FAF6F0;         /* Off-white paper color */
+  --ukiyo-black: #1A1A1A;         /* Sumi ink black */
+  --ukiyo-ochre: #D4A574;         /* Yellow ochre */
+  --ukiyo-sage: #87A96B;          /* Muted sage green */
+  --ukiyo-mist: #E8E3DB;          /* Misty gray */
+
+  /* Base Colors */
+  --color-background: var(--gray-1);
+  --color-foreground: var(--gray-12);
+  --color-invert: var(--gray-contrast);
+
+  --color-accent: var(--gray-4);
+  --color-accent-foreground: var(--gray-contrast);
+
+  --color-primary: var(--ukiyo-prussian);
+  --color-primary-foreground: var(--ukiyo-cream);
+
+  --color-secondary: var(--ukiyo-vermillion);
+  --color-secondary-foreground: var(--ukiyo-cream);
+
+  --color-tertiary: var(--ukiyo-ochre);
+  --color-tertiary-foreground: var(--ukiyo-black);
+
+  --color-quaternary: var(--ukiyo-sage);
+  --color-quaternary-foreground: var(--ukiyo-cream);
+
+  --color-muted: var(--ukiyo-mist);
+  --color-muted-foreground: var(--ukiyo-black);
+
+  --color-destructive: var(--ukiyo-vermillion);
+  --color-destructive-foreground: var(--ukiyo-cream);
+
+  --color-border: var(--border);
+  --color-input: var(--gray-2);
+  --color-ring: var(--ukiyo-prussian);
+
+  --color-card: var(--gray-2);
+  --color-card-secondary: var(--ukiyo-prussian);
+  --color-card-foreground: var(--gray-surface);
+
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-input-accent: var(--ukiyo-prussian);
+
+  /* Text Colors */
+  --color-text-primary: var(--gray-12);
+  --color-text-secondary: var(--gray-11);
+  --color-text-tertiary: var(--gray-10);
+  --color-text-accent: var(--ukiyo-prussian);
+
+  /* Button Colors */
+  --color-button-bg-primary: var(--ukiyo-prussian);
+  --color-button-bg-secondary: var(--ukiyo-mist);
+  --color-button-bg-ghost: transparent;
+  --color-button-bg-muted: var(--ukiyo-mist);
+
+  /* Border Colors */
+  --color-border-primary: var(--gray-5);
+  --color-border-secondary: var(--gray-4);
+  --color-border-accent: var(--ukiyo-prussian);
+
+  /* RISE Vibe Kit Specific */
+  --color-vibe-gradient-start: var(--ukiyo-prussian);
+  --color-vibe-gradient-end: var(--ukiyo-vermillion);
+  
+  /* Shadows - softer for Japanese aesthetic */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.03);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.08);
+
+  /* Spacing */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+}
+
+/* Base styles */
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-body), system-ui, sans-serif;
+  position: relative;
+}
+
+/* Subtle Japanese paper texture background */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: 
+    radial-gradient(circle at 20% 80%, var(--ukiyo-mist) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, var(--ukiyo-mist) 0%, transparent 50%),
+    radial-gradient(circle at 40% 40%, var(--ukiyo-cream) 0%, transparent 50%);
+  opacity: 0.03;
+  pointer-events: none;
+  z-index: -1;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-headline), system-ui, sans-serif;
+  letter-spacing: -0.015em;
+}
+
+/* Gradient text utility - Ukiyo-e inspired */
+.gradient-text {
+  background: linear-gradient(
+    135deg,
+    var(--color-vibe-gradient-start),
+    var(--color-vibe-gradient-end)
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Card styles with Japanese aesthetic */
+.rise-card {
+  background-color: white;
+  border: 1px solid var(--gray-4);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.dark .rise-card {
+  background-color: var(--gray-2);
+  border-color: var(--gray-6);
+}
+
+/* Subtle top accent for cards */
+.rise-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    var(--ukiyo-prussian),
+    var(--ukiyo-vermillion)
+  );
+  opacity: 0.8;
+}
+
+/* Button base styles with Japanese touches */
+.rise-button {
+  border-radius: var(--radius-md);
+  font-weight: 500;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.rise-button::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  transform: translate(-50%, -50%);
+  transition: width 0.6s, height 0.6s;
+}
+
+.rise-button:hover::after {
+  width: 300px;
+  height: 300px;
+}
+
+/* Smooth transitions for theme switching */
+* {
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+/* Toast notification styles */
+.Toastify__toast {
+  font-family: var(--font-body), system-ui, sans-serif;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  background-color: var(--gray-1);
+  color: var(--gray-12);
+  border: 1px solid var(--gray-4);
+}
+
+.dark .Toastify__toast {
+  background-color: var(--gray-2);
+  color: var(--gray-12);
+  border: 1px solid var(--gray-6);
+}
+
+.Toastify__progress-bar {
+  background: var(--color-primary);
+}
+
+.Toastify__close-button {
+  color: var(--gray-11);
+  opacity: 0.7;
+}
+
+.Toastify__close-button:hover {
+  opacity: 1;
+}
+
+/* Japanese-inspired component enhancements */
+/* Tables with subtle borders */
+table {
+  border-spacing: 0;
+}
+
+table thead tr {
+  border-bottom: 2px solid var(--ukiyo-prussian);
+}
+
+table tbody tr {
+  border-bottom: 1px solid var(--color-border-secondary);
+}
+
+table tbody tr:hover {
+  background-color: rgba(46, 80, 144, 0.02);
+}
+
+/* Input fields with Japanese aesthetic */
+input, textarea, select {
+  border: 1px solid var(--color-border-secondary);
+  background-color: var(--color-input);
+  transition: all 0.2s ease;
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--ukiyo-prussian);
+  box-shadow: 0 0 0 3px rgba(46, 80, 144, 0.1);
+}
+
+/* Links with subtle underline animation - skip navigation links */
+a:not([class*="text-"]) {
+  color: var(--ukiyo-prussian);
+  text-decoration: none;
+  position: relative;
+}
+
+a:not([class*="text-"])::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 0;
+  height: 1px;
+  background-color: var(--ukiyo-vermillion);
+  transition: width 0.3s ease;
+}
+
+a:not([class*="text-"]):hover::after {
+  width: 100%;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--ukiyo-prussian);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ukiyo-indigo);
+}
+
+/* Selection styling */
+::selection {
+  background-color: var(--ukiyo-prussian);
+  color: var(--ukiyo-cream);
+}
+
+/* Focus visible for accessibility */
+:focus-visible {
+  outline: 2px solid var(--ukiyo-prussian);
+  outline-offset: 2px;
+}

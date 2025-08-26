@@ -1,0 +1,68 @@
+# Dependencies
+node_modules/
+.yarn/
+
+# Testing
+coverage/
+
+# Foundry
+contracts/cache/
+contracts/out/
+contracts/broadcast/
+contracts/lib/
+
+# Production
+build/
+dist/
+out/
+.next/
+
+# Foundry
+contracts/cache/
+contracts/out/
+
+# Environment
+.env
+.env.local
+
+# Misc
+.DS_Store
+*.pem
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# External Dependencies / Working Files 
+open-clob/
+
+working/
+contracts/llm.txt
+
+indexing/info.txt
+
+nonzu-sdk/
+nonzu-deployments/
+ponder/
+
+frontend/test-results/
+
+indexing copy/
+=======
+
+# Rust / Backend
+backend/target/
+backend/vendor/
+backend/Cargo.lock
+**/*.rs.bk
+*.pdb
+
+feat-frontend-tweaks
+# Other repos
+rise-vibe-kit/
+
+# Playwright reports
+frontend/playwright-report/
+frontend/screenshots/
+backend/.env.backend

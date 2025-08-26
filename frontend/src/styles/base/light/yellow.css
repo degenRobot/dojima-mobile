@@ -1,0 +1,72 @@
+.light,
+.light-theme {
+  /* Ochre Scale - Inspired by Ukiyo-e earth tones */
+  --yellow-1: #fdfbf8;
+  --yellow-2: #faf6f0;
+  --yellow-3: #f6ede2;
+  --yellow-4: #f0e2d0;
+  --yellow-5: #ead5bd;
+  --yellow-6: #e2c6a8;
+  --yellow-7: #d9b491;
+  --yellow-8: #ce9f78;
+  --yellow-9: #D4A574;
+  --yellow-10: #c29561;
+  --yellow-11: #a87e50;
+  --yellow-12: #7a5a39;
+
+  --yellow-a1: #D4A57403;
+  --yellow-a2: #D4A57408;
+  --yellow-a3: #D4A57412;
+  --yellow-a4: #D4A5741a;
+  --yellow-a5: #D4A57424;
+  --yellow-a6: #D4A57430;
+  --yellow-a7: #D4A57442;
+  --yellow-a8: #D4A5745a;
+  --yellow-a9: #D4A5747a;
+  --yellow-a10: #D4A57490;
+  --yellow-a11: #D4A574b0;
+  --yellow-a12: #7a5a39d0;
+
+  --yellow-contrast: #1A1A1A;
+  --yellow-surface: #fdfbf8cc;
+  --yellow-indicator: #D4A574;
+  --yellow-track: #D4A574;
+}
+
+@supports (color: color(display-p3 1 1 1)) {
+  @media (color-gamut: p3) {
+    .light,
+    .light-theme {
+      --yellow-1: oklch(0% 0.0111 110.1);
+      --yellow-2: oklch(17.9% 0.0145 110.1);
+      --yellow-3: oklch(24.5% 0.0382 110.1);
+      --yellow-4: oklch(28.7% 0.0564 110.1);
+      --yellow-5: oklch(33.1% 0.065 110.1);
+      --yellow-6: oklch(38.4% 0.0652 110.1);
+      --yellow-7: oklch(45.1% 0.0683 110.1);
+      --yellow-8: oklch(53.4% 0.0801 110.1);
+      --yellow-9: oklch(97.2% 0.1552 110.1);
+      --yellow-10: oklch(94.4% 0.1552 110.1);
+      --yellow-11: oklch(89.8% 0.1412 110.1);
+      --yellow-12: oklch(94.2% 0.0641 110.1);
+
+      --yellow-a1: color(display-p3 0 0 0 / 0);
+      --yellow-a2: color(display-p3 0.9961 0.9961 0.6078 / 0.071);
+      --yellow-a3: color(display-p3 0.9686 0.9961 0.4118 / 0.134);
+      --yellow-a4: color(display-p3 0.9765 1 0.2902 / 0.177);
+      --yellow-a5: color(display-p3 1 1 0.3216 / 0.22);
+      --yellow-a6: color(display-p3 1 1 0.4588 / 0.275);
+      --yellow-a7: color(display-p3 0.9882 1 0.5412 / 0.35);
+      --yellow-a8: color(display-p3 0.9804 1 0.5569 / 0.444);
+      --yellow-a9: color(display-p3 0.9922 1 0.5529);
+      --yellow-a10: color(display-p3 0.9922 1 0.5373 / 0.965);
+      --yellow-a11: color(display-p3 0.9922 1 0.5569 / 0.899);
+      --yellow-a12: color(display-p3 0.9922 1 0.8157 / 0.942);
+
+      --yellow-contrast: #23230b;
+      --yellow-surface: color(display-p3 0.1412 0.1412 0.0863 / 0.5);
+      --yellow-indicator: oklch(97.2% 0.1552 110.1);
+      --yellow-track: oklch(97.2% 0.1552 110.1);
+    }
+  }
+}
