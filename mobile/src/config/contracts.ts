@@ -35,10 +35,10 @@ export const CONTRACTS = {
   
   // Porto Protocol (for gasless transactions)
   PortoOrchestrator: {
-    address: '0x046832405512D508b873E65174E51613291083bC' as const,
+    address: '0xa4D0537eEAB875C9a880580f38862C1f946bFc1c' as const,
   },
-  PortoProxy: {
-    address: '0xc46F88d3bfe039A0aA31E1eC2D4ccB3a4D4112FF' as const,
+  PortoDelegationProxy: {
+    address: '0x894C14A66508D221A219Dd0064b4A6718d0AAA52' as const,
   },
 } as const;
 
@@ -46,7 +46,7 @@ export const CONTRACTS = {
 export const NETWORK_CONFIG = {
   chainId: 11155931,
   chainName: 'RISE Testnet',
-  rpcUrl: 'https://testnet.riselabs.xyz',
+  rpcUrl: 'https://indexing.testnet.riselabs.xyz',
   wsUrl: 'wss://testnet.riselabs.xyz/ws',
   explorerUrl: 'https://testnet-explorer.riselabs.xyz',
   portoRelayUrl: 'https://rise-testnet-porto.fly.dev',

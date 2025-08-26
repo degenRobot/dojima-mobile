@@ -1,0 +1,50 @@
+{
+  "network": {
+    "chainId": 11155931,
+    "chainName": "RISE Testnet",
+    "rpcUrl": "https://indexing.testnet.riselabs.xyz",
+    "wsUrl": "wss://testnet.riselabs.xyz/ws",
+    "explorerUrl": "https://testnet-explorer.riselabs.xyz"
+  },
+  "porto": {
+    "relayUrl": "https://rise-testnet-porto.fly.dev",
+    "delegationProxy": "0x894C14A66508D221A219Dd0064b4A6718d0AAA52",
+    "orchestrator": "0xa4D0537eEAB875C9a880580f38862C1f946bFc1c"
+  },
+  "contracts": {
+    "clob": {
+      "UnifiedCLOB": "0xBaD509c8C7Fea62C1a388Fb27B3270079F2Ab6eb"
+    },
+    "tokens": {
+      "USDC": "0xA6d4Fa9f82AdBfFbB084Bf57b1cA6137E263cd83",
+      "WETH": "0xc6a0261E95C01DE0a07D7A544a048194063D2d1A",
+      "WBTC": "0x4692b6A6fDACF1Aa81568D31F0Ddda0f9d30D08a"
+    }
+  },
+  "tradingBooks": [
+    {
+      "bookId": 1,
+      "base": "WETH",
+      "quote": "USDC",
+      "symbol": "WETH/USDC",
+      "baseAddress": "0xc6a0261E95C01DE0a07D7A544a048194063D2d1A",
+      "quoteAddress": "0xA6d4Fa9f82AdBfFbB084Bf57b1cA6137E263cd83"
+    },
+    {
+      "bookId": 2,
+      "base": "WBTC",
+      "quote": "USDC",
+      "symbol": "WBTC/USDC",
+      "baseAddress": "0x4692b6A6fDACF1Aa81568D31F0Ddda0f9d30D08a",
+      "quoteAddress": "0xA6d4Fa9f82AdBfFbB084Bf57b1cA6137E263cd83"
+    },
+    {
+      "bookId": 3,
+      "base": "WETH",
+      "quote": "WBTC", 
+      "symbol": "WETH/WBTC",
+      "baseAddress": "0xc6a0261E95C01DE0a07D7A544a048194063D2d1A",
+      "quoteAddress": "0x4692b6A6fDACF1Aa81568D31F0Ddda0f9d30D08a"
+    }
+  ]
+}

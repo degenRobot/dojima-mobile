@@ -1,0 +1,67 @@
+{
+  "network": {
+    "chainId": 11155931,
+    "chainName": "RISE Testnet",
+    "rpcUrl": "https://indexing.testnet.riselabs.xyz",
+    "wsUrl": "wss://testnet.riselabs.xyz/ws",
+    "explorerUrl": "https://testnet-explorer.riselabs.xyz"
+  },
+  "porto": {
+    "relayUrl": "https://rise-testnet-porto.fly.dev",
+    "delegationProxy": "0x894C14A66508D221A219Dd0064b4A6718d0AAA52",
+    "orchestrator": "0xa4D0537eEAB875C9a880580f38862C1f946bFc1c"
+  },
+  "contracts": {
+    "clob": {
+      "UnifiedCLOB": "0xBaD509c8C7Fea62C1a388Fb27B3270079F2Ab6eb"
+    },
+    "tokens": {
+      "USDC": "0xA6d4Fa9f82AdBfFbB084Bf57b1cA6137E263cd83",
+      "WETH": "0xc6a0261E95C01DE0a07D7A544a048194063D2d1A",
+      "WBTC": "0xE2FcE88b529aFF866A52a893e93E4bb0C666CECc"
+    },
+    "tokenDecimals": {
+      "USDC": 6,
+      "WETH": 18,
+      "WBTC": 8
+    }
+  },
+  "tradingBooks": [
+    {
+      "id": 1,
+      "baseToken": "WETH",
+      "quoteToken": "USDC",
+      "symbol": "WETH/USDC",
+      "priceDecimals": 6,
+      "note": "Price should be in USDC decimals (6). Example: 2000 USDC per WETH = 2000 * 10^6"
+    },
+    {
+      "id": 2,
+      "baseToken": "WBTC",
+      "quoteToken": "USDC",
+      "symbol": "WBTC/USDC",
+      "priceDecimals": 6,
+      "note": "Price should be in USDC decimals (6). Example: 50000 USDC per WBTC = 50000 * 10^6"
+    },
+    {
+      "id": 3,
+      "baseToken": "WETH",
+      "quoteToken": "WBTC",
+      "symbol": "WETH/WBTC",
+      "priceDecimals": 8,
+      "note": "Price should be in WBTC decimals (8). Example: 0.04 BTC per ETH = 0.04 * 10^8 = 4000000"
+    }
+  ],
+  "decimalHandling": {
+    "important": "The UnifiedCLOB contract expects prices in the quote token's decimals",
+    "formula": "quoteAmount = (baseAmount * price) / 10^18",
+    "examples": {
+      "WETH_USDC": {
+        "humanReadable": "Buy 0.1 WETH at 2000 USDC per WETH",
+        "baseAmount": "0.1 * 10^18 = 100000000000000000",
+        "price": "2000 * 10^6 = 2000000000",
+        "quoteAmount": "(100000000000000000 * 2000000000) / 10^18 = 200000000 (200 USDC in 6 decimals)"
+      }
+    }
+  }
+}

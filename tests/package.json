@@ -1,0 +1,14 @@
+{
+  "name": "dojima-clob-tests",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test:clob": "node test-clob-gasless.js",
+    "test:orders": "node test-clob-orders.js",
+    "test:trading": "node test-clob-trading.js",
+    "test:all": "npm run test:clob && npm run test:orders && npm run test:trading"
+  },
+  "dependencies": {
+    "viem": "^2.33.0"
+  }
+}

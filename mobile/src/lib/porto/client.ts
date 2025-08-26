@@ -1,4 +1,5 @@
 // Porto client for interacting with the Porto relay
+// Based on the working rise-mobile-example implementation
 import { Account } from 'viem';
 
 interface PortoConfig {
@@ -22,41 +23,55 @@ export class PortoClient {
     this.config = config;
   }
 
-  // Make a JSON-RPC call to the Porto relay
+  // Make a JSON-RPC call to the Porto relay (matches working example)
   private async makeRelayCall(method: string, params: any[]): Promise<any> {
     try {
-      const response = await fetch(`${this.config.relayUrl}/rpc`, {
+      const requestId = Math.floor(Math.random() * 10000);
+      
+      const response = await fetch(this.config.relayUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           jsonrpc: '2.0',
-          id: Date.now(),
           method,
           params,
+          id: requestId,
         }),
       });
 
-      const data: RelayResponse = await response.json();
-
-      if (data.error) {
-        throw new Error(`Relay error: ${data.error.message}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      return data.result;
+      const result = await response.json();
+
+      if (result.error) {
+        throw new Error(`Relay error: ${result.error.message}`);
+      }
+
+      return result.result;
     } catch (error) {
       console.error(`Failed to call ${method}:`, error);
       throw error;
     }
   }
 
-  // Serialize public key for Porto
+  // Serialize public key for Porto (matches working example)
   private serializePublicKey(address: string): string {
-    // Remove 0x prefix and pad to 64 bytes (32 bytes for x, 32 bytes for y)
-    const cleanAddress = address.toLowerCase().replace('0x', '');
-    // For EOA addresses, we pad with the address itself (simplified for demo)
-    return '0x' + cleanAddress.padStart(64, '0') + cleanAddress.padStart(64, '0');
+    const cleanAddress = address.toLowerCase();
+    if (cleanAddress.length < 66) {
+      const withoutPrefix = cleanAddress.slice(2);
+      const padded = withoutPrefix.padStart(64, '0');
+      return '0x' + padded;
+    }
+    return cleanAddress;
+  }
+
+  // Check Porto health
+  async checkHealth(): Promise<string> {
+    return await this.makeRelayCall('health', []);
   }
 
   // Check delegation status
@@ -86,7 +101,7 @@ export class PortoClient {
     }
   }
 
-  // Setup delegation for gasless transactions
+  // Setup delegation for gasless transactions (matches working example)
   async setupDelegation(userAddress: string, sessionAccount: Account): Promise<{
     success: boolean;
     error?: string;
@@ -94,23 +109,21 @@ export class PortoClient {
     try {
       console.log('Setting up delegation for:', userAddress);
 
-      // Step 1: Prepare upgrade with admin key
+      // Step 1: Prepare upgrade with session key
       const prepareParams = {
         address: userAddress,
-        delegation: '0xc46F88d3bfe039A0aA31E1eC2D4ccB3a4D4112FF', // Porto Proxy address
+        delegation: '0x894C14A66508D221A219Dd0064b4A6718d0AAA52', // Updated delegation proxy
         capabilities: {
-          authorizeKeys: [
-            {
-              prehash: false,
-              expiry: '0x0',
-              publicKey: this.serializePublicKey(sessionAccount.address),
-              role: 'admin',
-              type: 'secp256k1',
-              permissions: [],
-            },
-          ],
+          authorizeKeys: sessionAccount ? [{
+            expiry: '0x0', // Never expires for demo
+            prehash: false,
+            publicKey: this.serializePublicKey(sessionAccount.address),
+            role: 'session',
+            type: 'secp256k1',
+            permissions: []
+          }] : []
         },
-        chainId: this.config.chainId,
+        chainId: this.config.chainId
       };
 
       const prepareResponse = await this.makeRelayCall('wallet_prepareUpgradeAccount', [prepareParams]);
@@ -130,7 +143,7 @@ export class PortoClient {
       });
 
       // Step 3: Store upgrade in relay database
-      const upgradeResponse = await this.makeRelayCall('wallet_upgradeAccount', [{
+      await this.makeRelayCall('wallet_upgradeAccount', [{
         context: prepareResponse.context,
         signatures: { 
           auth: authSig, 
@@ -138,7 +151,7 @@ export class PortoClient {
         },
       }]);
 
-      console.log('Delegation setup complete:', upgradeResponse);
+      console.log('Delegation setup complete');
 
       return {
         success: true,
@@ -152,7 +165,88 @@ export class PortoClient {
     }
   }
 
-  // Execute a gasless transaction
+  // Prepare calls (matches working example with key parameter)
+  async prepareCalls(account: Account, calls: Array<{ to: string; data: string; value: string }>): Promise<any> {
+    // Format calls with lowercase addresses
+    const formattedCalls = calls.map(call => ({
+      ...call,
+      to: call.to.toLowerCase()
+    }));
+    
+    const params = {
+      from: account.address,
+      chainId: this.config.chainId,
+      calls: formattedCalls,
+      capabilities: {
+        meta: {
+          feeToken: '0x0000000000000000000000000000000000000000' // ETH for gasless
+        }
+      }
+    };
+
+    // Include key in the request like the working example
+    const response = await this.makeRelayCall('wallet_prepareCalls', [{
+      ...params,
+      key: {
+        prehash: false,
+        publicKey: this.serializePublicKey(account.address),
+        type: 'secp256k1'
+      }
+    }]);
+    
+    return response;
+  }
+
+  // Send prepared calls (matches working example)
+  async sendPreparedCalls(account: Account, prepareResult: any): Promise<{ id: string }> {
+    const signature = await account.sign({ hash: prepareResult.digest });
+
+    const response = await this.makeRelayCall('wallet_sendPreparedCalls', [{
+      context: prepareResult.context,
+      key: {
+        prehash: false,
+        publicKey: this.serializePublicKey(account.address),
+        type: 'secp256k1'
+      },
+      signature
+    }]);
+    
+    // Return standardized format
+    if (typeof response === 'string') {
+      return { id: response };
+    }
+    return response;
+  }
+
+  // Get transaction status
+  async getCallsStatus(bundleId: string): Promise<any> {
+    return await this.makeRelayCall('wallet_getCallsStatus', [bundleId]);
+  }
+
+  // Wait for transaction confirmation
+  async waitForTransaction(bundleId: string, maxAttempts: number = 30): Promise<any> {
+    let attempts = 0;
+    
+    while (attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      try {
+        const status = await this.getCallsStatus(bundleId);
+        
+        if (status.status === 200 || status.status === 'success') {
+          return status;
+        }
+      } catch (e) {
+        // Continue waiting
+      }
+      
+      attempts++;
+    }
+    
+    throw new Error('Transaction timeout');
+  }
+
+  // Execute a gasless transaction (complete flow matching working example)
   async executeGaslessTransaction(params: {
     from: string;
     target: string;
@@ -161,44 +255,36 @@ export class PortoClient {
     sessionKey: Account;
   }): Promise<any> {
     try {
-      // Prepare intent
-      const intentParams = {
-        sender: params.from,
-        capabilities: {
-          calls: [
-            {
-              to: params.target,
-              data: params.data,
-              value: (params.value || 0n).toString(),
-            },
-          ],
-          meta: {
-            feeToken: '0x0000000000000000000000000000000000000000', // ETH
-          },
-        },
-        expiry: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
-        nonce: Date.now(), // Simple nonce for demo
-        chainId: `0x${this.config.chainId.toString(16)}`,
-      };
-
-      const prepareResponse = await this.makeRelayCall('wallet_prepareIntent', [intentParams]);
-
-      if (!prepareResponse?.hash) {
-        throw new Error('Failed to prepare intent');
-      }
-
-      // Sign intent with session key
-      const signature = await params.sessionKey.sign({
-        hash: prepareResponse.hash as `0x${string}`,
-      });
-
-      // Submit intent
-      const submitResponse = await this.makeRelayCall('wallet_submitIntent', [{
-        intent: prepareResponse.intent,
-        signature,
+      // Prepare the calls
+      const prepareResult = await this.prepareCalls(params.sessionKey, [{
+        to: params.target,
+        data: params.data,
+        value: params.value ? '0x' + params.value.toString(16) : '0x0'
       }]);
 
-      return submitResponse;
+      if (!prepareResult?.digest) {
+        throw new Error('Failed to prepare calls');
+      }
+
+      // Send the prepared calls
+      const sendResult = await this.sendPreparedCalls(params.sessionKey, prepareResult);
+
+      // Optionally wait for quick confirmation
+      try {
+        const status = await this.waitForTransaction(sendResult.id, 3);
+        return {
+          hash: sendResult.id,
+          bundleId: sendResult.id,
+          status: status.receipts?.[0]?.status === '0x1' ? 'success' : 'pending'
+        };
+      } catch {
+        // Transaction still pending
+        return {
+          hash: sendResult.id,
+          bundleId: sendResult.id,
+          status: 'pending'
+        };
+      }
     } catch (error) {
       console.error('Failed to execute gasless transaction:', error);
       throw error;
@@ -209,14 +295,6 @@ export class PortoClient {
   async getAccountInfo(address: string): Promise<any> {
     return this.makeRelayCall('wallet_getAccount', [{
       address,
-      chainId: `0x${this.config.chainId.toString(16)}`,
-    }]);
-  }
-
-  // Get intent status
-  async getIntentStatus(intentHash: string): Promise<any> {
-    return this.makeRelayCall('wallet_getIntentStatus', [{
-      hash: intentHash,
       chainId: `0x${this.config.chainId.toString(16)}`,
     }]);
   }
