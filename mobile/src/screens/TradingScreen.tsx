@@ -7,23 +7,51 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Modal,
+  TextInput,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { usePorto } from '../providers/PortoProvider';
-import { useWebSocket } from '../providers/WebSocketProvider';
+import { usePorto } from '../providers/SimplePortoProvider';
+import { useWebSocket } from '../providers/MockWebSocketProvider';
+import { useCLOBContract } from '../hooks/useCLOBContract';
 import { OrderBook } from '../components/trading/OrderBook';
 import { OrderForm } from '../components/trading/OrderForm';
 import { RecentTrades } from '../components/trading/RecentTrades';
 import { PairSelector } from '../components/trading/PairSelector';
 import { COLORS } from '../config/constants';
-import { TRADING_PAIRS } from '../config/contracts';
+import { TRADING_BOOKS } from '../config/contracts';
+import { logDebug, logInfo, logWarn, logError } from '../utils/logger';
 
 export function TradingScreen() {
-  const { isConnected: portoConnected, delegationStatus } = usePorto();
+  const { isInitialized, delegationStatus, isConnected: portoConnected } = usePorto();
   const { isConnected: wsConnected } = useWebSocket();
-  const [selectedPair, setSelectedPair] = useState(TRADING_PAIRS[0]);
+  const { depositToCLOB, loading } = useCLOBContract();
+  const [selectedPair, setSelectedPair] = useState(TRADING_BOOKS[0]);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'book' | 'trades'>('book');
+  const [depositModalVisible, setDepositModalVisible] = useState(false);
+  const [depositToken, setDepositToken] = useState<'USDC' | 'WETH' | 'WBTC'>('USDC');
+  const [depositAmount, setDepositAmount] = useState('');
+  
+  // Log state on mount and changes
+  useEffect(() => {
+    logInfo('TradingScreen', 'Component mounted', {
+      isInitialized,
+      delegationStatus,
+      portoConnected,
+      wsConnected
+    });
+  }, []);
+  
+  useEffect(() => {
+    logDebug('TradingScreen', 'State changed', {
+      isInitialized,
+      delegationStatus,
+      portoConnected,
+      wsConnected
+    });
+  }, [isInitialized, delegationStatus, portoConnected, wsConnected]);
 
   const onRefresh = React.useCallback(() => {
     setRefreshing(true);
@@ -31,22 +59,35 @@ export function TradingScreen() {
     setTimeout(() => setRefreshing(false), 2000);
   }, []);
 
-  // Show warning if not connected
-  if (!portoConnected || delegationStatus === 'error') {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.warningContainer}>
-          <Text style={styles.warningText}>⚠️ Connection Error</Text>
-          <Text style={styles.warningSubtext}>
-            Unable to connect to trading services. Please check your connection.
-          </Text>
-          <TouchableOpacity style={styles.retryButton}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const handleDeposit = async () => {
+    if (!depositAmount || parseFloat(depositAmount) <= 0) {
+      logWarn('TradingScreen', 'Invalid deposit amount', { amount: depositAmount });
+      Alert.alert('Invalid Amount', 'Please enter a valid amount');
+      return;
+    }
+    
+    logInfo('TradingScreen', 'Starting deposit', { token: depositToken, amount: depositAmount });
+    const result = await depositToCLOB(depositToken, depositAmount);
+    
+    if (result.success) {
+      logInfo('TradingScreen', 'Deposit successful', { token: depositToken, amount: depositAmount, bundleId: result.bundleId });
+      Alert.alert('Success', `Deposited ${depositAmount} ${depositToken} to CLOB`);
+      setDepositModalVisible(false);
+      setDepositAmount('');
+    } else {
+      logError('TradingScreen', 'Deposit failed', { error: result.error });
+      Alert.alert('Error', result.error || 'Deposit failed');
+    }
+  };
+
+  // Since we only show this screen after setup, we can assume delegation is ready
+  // Just log the current state for debugging
+  logDebug('TradingScreen', 'Trading screen active', {
+    isInitialized,
+    delegationStatus,
+    portoConnected,
+    wsConnected,
+  });
 
   return (
     <SafeAreaView style={styles.container}>
@@ -58,16 +99,17 @@ export function TradingScreen() {
         />
       </View>
 
-      {/* Connection Status */}
-      <View style={styles.statusBar}>
-        <View style={styles.statusItem}>
-          <View style={[styles.statusDot, wsConnected ? styles.statusDotGreen : styles.statusDotRed]} />
-          <Text style={styles.statusText}>WebSocket</Text>
-        </View>
-        <View style={styles.statusItem}>
-          <View style={[styles.statusDot, portoConnected ? styles.statusDotGreen : styles.statusDotRed]} />
-          <Text style={styles.statusText}>Porto</Text>
-        </View>
+      {/* Action Bar */}
+      <View style={styles.actionBar}>
+        <TouchableOpacity 
+          style={styles.depositButton}
+          onPress={() => setDepositModalVisible(true)}
+        >
+          <Text style={styles.depositButtonText}>💰 Deposit to CLOB</Text>
+        </TouchableOpacity>
+        <Text style={styles.statusInfo}>
+          {delegationStatus === 'ready' ? '✅ Gasless Ready' : '⏳ Setting up...'}
+        </Text>
       </View>
 
       <ScrollView
@@ -114,6 +156,69 @@ export function TradingScreen() {
           )}
         </View>
       </ScrollView>
+      
+      {/* Deposit Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={depositModalVisible}
+        onRequestClose={() => setDepositModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Deposit to CLOB</Text>
+            
+            <View style={styles.tokenSelector}>
+              {(['USDC', 'WETH', 'WBTC'] as const).map(token => (
+                <TouchableOpacity
+                  key={token}
+                  style={[
+                    styles.tokenButton,
+                    depositToken === token && styles.tokenButtonActive
+                  ]}
+                  onPress={() => setDepositToken(token)}
+                >
+                  <Text style={[
+                    styles.tokenButtonText,
+                    depositToken === token && styles.tokenButtonTextActive
+                  ]}>
+                    {token}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            
+            <TextInput
+              style={styles.input}
+              placeholder={`Amount (${depositToken})`}
+              placeholderTextColor={COLORS.textSecondary}
+              value={depositAmount}
+              onChangeText={setDepositAmount}
+              keyboardType="numeric"
+            />
+            
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setDepositModalVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.confirmButton]}
+                onPress={handleDeposit}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator size="small" color={COLORS.background} />
+                ) : (
+                  <Text style={styles.confirmButtonText}>Deposit</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -216,6 +321,114 @@ const styles = StyleSheet.create({
   },
   retryButtonText: {
     color: COLORS.textPrimary,
+    fontWeight: '600',
+  },
+  actionBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: COLORS.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  depositButton: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  depositButtonText: {
+    color: COLORS.background,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  statusInfo: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    padding: 24,
+    width: '90%',
+    maxWidth: 400,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: COLORS.text,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  tokenSelector: {
+    flexDirection: 'row',
+    marginBottom: 20,
+    gap: 8,
+  },
+  tokenButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+  },
+  tokenButtonActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  tokenButtonText: {
+    color: COLORS.textSecondary,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  tokenButtonTextActive: {
+    color: COLORS.background,
+  },
+  input: {
+    backgroundColor: COLORS.background,
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    color: COLORS.text,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginBottom: 20,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  cancelButtonText: {
+    color: COLORS.textSecondary,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  confirmButton: {
+    backgroundColor: COLORS.primary,
+  },
+  confirmButtonText: {
+    color: COLORS.background,
+    fontSize: 16,
     fontWeight: '600',
   },
 });

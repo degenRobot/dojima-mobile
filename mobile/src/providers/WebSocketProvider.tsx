@@ -235,8 +235,9 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     connect();
 
     // Subscribe to main CLOB contracts
-    subscribeToContract(CONTRACTS.EnhancedSpotBook.address);
-    subscribeToContract(CONTRACTS.CLOBRegistry.address);
+    if (CONTRACTS.UnifiedCLOB?.address) {
+      subscribeToContract(CONTRACTS.UnifiedCLOB.address);
+    }
 
     return () => {
       if (reconnectTimeoutRef.current) {

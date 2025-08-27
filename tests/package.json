@@ -6,7 +6,8 @@
     "test:clob": "node test-clob-gasless.js",
     "test:orders": "node test-clob-orders.js",
     "test:trading": "node test-clob-trading.js",
-    "test:all": "npm run test:clob && npm run test:orders && npm run test:trading"
+    "test:all": "npm run test:clob && npm run test:orders && npm run test:trading",
+    "test:v2": "node test-unified-clob-v2.js"
   },
   "dependencies": {
     "viem": "^2.33.0"

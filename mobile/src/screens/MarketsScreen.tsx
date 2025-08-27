@@ -1,143 +1,444 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
+  ScrollView,
   TouchableOpacity,
+  FlatList,
+  ActivityIndicator,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useWalletStore } from '../store/walletStore';
+import { CONTRACTS } from '../config/contracts';
 import { COLORS } from '../config/constants';
-import { TRADING_PAIRS } from '../config/contracts';
+import { publicClient } from '../config/viemClient';
+import { formatUnits } from 'viem';
+import { useOrderPlacement } from '../hooks/useOrderPlacement';
 
-// Mock market data
-const mockMarketData = [
+interface Order {
+  id: bigint;
+  trader: string;
+  bookId: number;
+  orderType: number;
+  price: bigint;
+  amount: bigint;
+  filled: bigint;
+  status: number;
+  timestamp: bigint;
+}
+
+interface TradingBook {
+  id: number;
+  name: string;
+  baseSymbol: string;
+  quoteSymbol: string;
+  baseDecimals: number;
+  quoteDecimals: number;
+}
+
+const TRADING_BOOKS: TradingBook[] = [
   {
-    id: '1',
-    pair: 'WETH/USDC',
-    price: '2,345.67',
-    change24h: '+5.23%',
-    volume24h: '1.2M',
-    high24h: '2,456.78',
-    low24h: '2,234.56',
-    isPositive: true,
+    id: 1,
+    name: 'WETH/USDC',
+    baseSymbol: 'WETH',
+    quoteSymbol: 'USDC',
+    baseDecimals: 18,
+    quoteDecimals: 6,
   },
   {
-    id: '2',
-    pair: 'RISE/USDC',
-    price: '0.4567',
-    change24h: '-2.45%',
-    volume24h: '567K',
-    high24h: '0.4789',
-    low24h: '0.4234',
-    isPositive: false,
-  },
-  {
-    id: '3',
-    pair: 'WETH/RISE',
-    price: '5,134.23',
-    change24h: '+7.89%',
-    volume24h: '234K',
-    high24h: '5,456.78',
-    low24h: '4,890.12',
-    isPositive: true,
+    id: 2,
+    name: 'WBTC/USDC',
+    baseSymbol: 'WBTC',
+    quoteSymbol: 'USDC',
+    baseDecimals: 8,
+    quoteDecimals: 6,
   },
 ];
 
+const ORDER_STATUS = ['ACTIVE', 'PARTIALLY_FILLED', 'FILLED', 'CANCELLED'];
+
 export function MarketsScreen() {
-  const navigation = useNavigation();
+  const { wallet } = useWalletStore();
+  const [selectedBook, setSelectedBook] = useState<TradingBook>(TRADING_BOOKS[0]);
+  const [buyOrders, setBuyOrders] = useState<Order[]>([]);
+  const [sellOrders, setSellOrders] = useState<Order[]>([]);
+  const [userOrders, setUserOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<'orderbook' | 'myorders'>('orderbook');
+  const { matchOrders, cancelOrder } = useOrderPlacement();
 
-  const onRefresh = React.useCallback(() => {
-    setRefreshing(true);
-    // Refresh market data
-    setTimeout(() => setRefreshing(false), 2000);
-  }, []);
+  // Fetch order book
+  const fetchOrderBook = async () => {
+    setLoading(true);
+    try {
+      // Get order IDs from contract
+      const [buyOrderIds, sellOrderIds] = await publicClient.readContract({
+        address: CONTRACTS.UnifiedCLOB.address,
+        abi: CONTRACTS.UnifiedCLOB.abi,
+        functionName: 'getOrderBook',
+        args: [BigInt(selectedBook.id)],
+      }) as [bigint[], bigint[]];
 
-  const handleSelectMarket = (pair: string) => {
-    // Navigate to trading screen with selected pair
-    navigation.navigate('Trading' as never, { pair } as never);
+      // Fetch buy order details
+      const buyOrderPromises = buyOrderIds.map(async (orderId) => {
+        const orderData = await publicClient.readContract({
+          address: CONTRACTS.UnifiedCLOB.address,
+          abi: CONTRACTS.UnifiedCLOB.abi,
+          functionName: 'getOrder',
+          args: [orderId],
+        }) as any;
+
+        return {
+          id: orderData[0],
+          trader: orderData[1],
+          bookId: Number(orderData[2]),
+          orderType: Number(orderData[3]),
+          price: orderData[4],
+          amount: orderData[5],
+          filled: orderData[6],
+          status: Number(orderData[7]),
+          timestamp: orderData[8],
+        } as Order;
+      });
+
+      // Fetch sell order details
+      const sellOrderPromises = sellOrderIds.map(async (orderId) => {
+        const orderData = await publicClient.readContract({
+          address: CONTRACTS.UnifiedCLOB.address,
+          abi: CONTRACTS.UnifiedCLOB.abi,
+          functionName: 'getOrder',
+          args: [orderId],
+        }) as any;
+
+        return {
+          id: orderData[0],
+          trader: orderData[1],
+          bookId: Number(orderData[2]),
+          orderType: Number(orderData[3]),
+          price: orderData[4],
+          amount: orderData[5],
+          filled: orderData[6],
+          status: Number(orderData[7]),
+          timestamp: orderData[8],
+        } as Order;
+      });
+
+      const [fetchedBuyOrders, fetchedSellOrders] = await Promise.all([
+        Promise.all(buyOrderPromises),
+        Promise.all(sellOrderPromises),
+      ]);
+
+      setBuyOrders(fetchedBuyOrders);
+      setSellOrders(fetchedSellOrders);
+
+      // Filter user orders
+      if (wallet) {
+        const userOrderList = [...fetchedBuyOrders, ...fetchedSellOrders].filter(
+          (order) => order.trader.toLowerCase() === wallet.address.toLowerCase()
+        );
+        setUserOrders(userOrderList);
+      }
+    } catch (error) {
+      console.error('Failed to fetch order book:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   };
 
-  const renderMarketItem = ({ item }: { item: typeof mockMarketData[0] }) => (
-    <TouchableOpacity 
-      style={styles.marketCard}
-      onPress={() => handleSelectMarket(item.pair)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.marketHeader}>
-        <Text style={styles.pairName}>{item.pair}</Text>
-        <Text style={[
-          styles.changePercent,
-          item.isPositive ? styles.changePositive : styles.changeNegative
-        ]}>
-          {item.change24h}
-        </Text>
-      </View>
-      
-      <View style={styles.priceContainer}>
-        <Text style={styles.priceLabel}>Price</Text>
-        <Text style={styles.priceValue}>${item.price}</Text>
-      </View>
+  useEffect(() => {
+    fetchOrderBook();
+  }, [selectedBook, wallet]);
 
-      <View style={styles.statsRow}>
-        <View style={styles.statItem}>
-          <Text style={styles.statLabel}>24h Volume</Text>
-          <Text style={styles.statValue}>${item.volume24h}</Text>
-        </View>
-        <View style={styles.statItem}>
-          <Text style={styles.statLabel}>24h High</Text>
-          <Text style={styles.statValue}>${item.high24h}</Text>
-        </View>
-        <View style={styles.statItem}>
-          <Text style={styles.statLabel}>24h Low</Text>
-          <Text style={styles.statValue}>${item.low24h}</Text>
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchOrderBook();
+  };
 
-  const filteredMarkets = mockMarketData.filter(market =>
-    market.pair.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const handleMatchOrders = async () => {
+    try {
+      Alert.alert(
+        'Match Orders',
+        `This will attempt to match crossing orders in the ${selectedBook.name} market. Continue?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Match',
+            onPress: async () => {
+              setLoading(true);
+              try {
+                const matchCount = await matchOrders(selectedBook.id);
+                Alert.alert(
+                  'Matching Complete',
+                  `Successfully matched ${matchCount} order${matchCount !== 1 ? 's' : ''}`
+                );
+                fetchOrderBook();
+              } catch (error: any) {
+                Alert.alert('Error', error.message || 'Failed to match orders');
+              } finally {
+                setLoading(false);
+              }
+            },
+          },
+        ]
+      );
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to match orders');
+    }
+  };
+
+  const handleCancelOrder = (orderId: bigint) => {
+    Alert.alert(
+      'Cancel Order',
+      'Are you sure you want to cancel this order?',
+      [
+        { text: 'No', style: 'cancel' },
+        {
+          text: 'Yes',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setLoading(true);
+              await cancelOrder(orderId);
+              Alert.alert('Success', 'Order cancelled successfully');
+              fetchOrderBook();
+            } catch (error: any) {
+              Alert.alert('Error', error.message || 'Failed to cancel order');
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const renderOrderItem = ({ item, type }: { item: Order; type: 'buy' | 'sell' }) => {
+    const remaining = item.amount - item.filled;
+    const price = formatUnits(item.price, selectedBook.quoteDecimals);
+    const amount = formatUnits(remaining, 18); // Amount is normalized to 18 decimals
+    const total = (parseFloat(price) * parseFloat(amount)).toFixed(selectedBook.quoteDecimals);
+
+    return (
+      <View style={[styles.orderItem, type === 'buy' ? styles.buyOrder : styles.sellOrder]}>
+        <Text style={styles.orderPrice}>{price}</Text>
+        <Text style={styles.orderAmount}>{amount}</Text>
+        <Text style={styles.orderTotal}>{total}</Text>
+      </View>
+    );
+  };
+
+  const renderUserOrder = ({ item }: { item: Order }) => {
+    const isActive = item.status === 0;
+    const isBuy = item.orderType === 0;
+    const price = formatUnits(item.price, selectedBook.quoteDecimals);
+    const amount = formatUnits(item.amount, 18);
+    const filled = formatUnits(item.filled, 18);
+
+    return (
+      <View style={styles.userOrderItem}>
+        <View style={styles.userOrderHeader}>
+          <View style={[styles.orderTypeBadge, isBuy ? styles.buyBadge : styles.sellBadge]}>
+            <Text style={styles.orderTypeBadgeText}>{isBuy ? 'BUY' : 'SELL'}</Text>
+          </View>
+          <Text style={[styles.orderStatus, { color: isActive ? COLORS.warning : COLORS.textMuted }]}>
+            {ORDER_STATUS[item.status]}
+          </Text>
+        </View>
+        
+        <View style={styles.userOrderDetails}>
+          <View style={styles.userOrderRow}>
+            <Text style={styles.userOrderLabel}>Price:</Text>
+            <Text style={styles.userOrderValue}>{price} {selectedBook.quoteSymbol}</Text>
+          </View>
+          <View style={styles.userOrderRow}>
+            <Text style={styles.userOrderLabel}>Amount:</Text>
+            <Text style={styles.userOrderValue}>{amount} {selectedBook.baseSymbol}</Text>
+          </View>
+          <View style={styles.userOrderRow}>
+            <Text style={styles.userOrderLabel}>Filled:</Text>
+            <Text style={styles.userOrderValue}>{filled} {selectedBook.baseSymbol}</Text>
+          </View>
+        </View>
+
+        {isActive && (
+          <TouchableOpacity
+            style={styles.cancelButton}
+            onPress={() => handleCancelOrder(item.id)}
+          >
+            <Text style={styles.cancelButtonText}>Cancel Order</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
+
+  const calculateSpread = () => {
+    if (buyOrders.length === 0 || sellOrders.length === 0) return 'N/A';
+    
+    const bestBid = buyOrders[0]?.price || 0n;
+    const bestAsk = sellOrders[0]?.price || 0n;
+    
+    if (bestBid === 0n || bestAsk === 0n) return 'N/A';
+    
+    const spread = formatUnits(bestAsk - bestBid, selectedBook.quoteDecimals);
+    return spread;
+  };
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header Stats */}
-      <View style={styles.headerStats}>
-        <View style={styles.headerStatItem}>
-          <Text style={styles.headerStatLabel}>Total Volume (24h)</Text>
-          <Text style={styles.headerStatValue}>$2.1M</Text>
-        </View>
-        <View style={styles.headerStatItem}>
-          <Text style={styles.headerStatLabel}>Active Markets</Text>
-          <Text style={styles.headerStatValue}>3</Text>
-        </View>
-      </View>
-
-      {/* Market List */}
-      <FlatList
-        data={filteredMarkets}
-        renderItem={renderMarketItem}
-        keyExtractor={item => item.id}
-        contentContainerStyle={styles.listContent}
+      <ScrollView
+        style={styles.scrollView}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={onRefresh}
+            onRefresh={handleRefresh}
             tintColor={COLORS.primary}
           />
         }
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No markets available</Text>
+      >
+        {/* Market Selector */}
+        <View style={styles.marketSelector}>
+          {TRADING_BOOKS.map((book) => (
+            <TouchableOpacity
+              key={book.id}
+              style={[
+                styles.marketButton,
+                selectedBook.id === book.id && styles.marketButtonActive,
+              ]}
+              onPress={() => setSelectedBook(book)}
+            >
+              <Text
+                style={[
+                  styles.marketButtonText,
+                  selectedBook.id === book.id && styles.marketButtonTextActive,
+                ]}
+              >
+                {book.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Market Stats */}
+        <View style={styles.marketStats}>
+          <View style={styles.statItem}>
+            <Text style={styles.statLabel}>Spread</Text>
+            <Text style={styles.statValue}>{calculateSpread()}</Text>
           </View>
-        }
-      />
+          <View style={styles.statItem}>
+            <Text style={styles.statLabel}>Buy Orders</Text>
+            <Text style={styles.statValue}>{buyOrders.length}</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={styles.statLabel}>Sell Orders</Text>
+            <Text style={styles.statValue}>{sellOrders.length}</Text>
+          </View>
+        </View>
+
+        {/* Match Orders Button */}
+        {wallet && (
+          <TouchableOpacity
+            style={styles.matchButton}
+            onPress={handleMatchOrders}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#FFF" />
+            ) : (
+              <>
+                <Text style={styles.matchButtonText}>Match Orders</Text>
+                <Text style={styles.matchButtonSubtext}>
+                  Execute crossing orders and earn fees
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+        )}
+
+        {/* Tab Navigation */}
+        <View style={styles.tabContainer}>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'orderbook' && styles.tabActive]}
+            onPress={() => setActiveTab('orderbook')}
+          >
+            <Text style={[styles.tabText, activeTab === 'orderbook' && styles.tabTextActive]}>
+              Order Book
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'myorders' && styles.tabActive]}
+            onPress={() => setActiveTab('myorders')}
+          >
+            <Text style={[styles.tabText, activeTab === 'myorders' && styles.tabTextActive]}>
+              My Orders ({userOrders.length})
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Tab Content */}
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={COLORS.primary} />
+            <Text style={styles.loadingText}>Loading orders...</Text>
+          </View>
+        ) : activeTab === 'orderbook' ? (
+          <View style={styles.orderBookContainer}>
+            {/* Sell Orders (reversed) */}
+            <View style={styles.orderSection}>
+              <View style={styles.orderHeader}>
+                <Text style={styles.headerText}>Price</Text>
+                <Text style={styles.headerText}>Amount</Text>
+                <Text style={styles.headerText}>Total</Text>
+              </View>
+              
+              <View style={styles.sellOrdersContainer}>
+                {sellOrders.slice().reverse().map((order, index) => (
+                  <View key={order.id.toString()}>
+                    {renderOrderItem({ item: order, type: 'sell' })}
+                  </View>
+                ))}
+                {sellOrders.length === 0 && (
+                  <Text style={styles.emptyText}>No sell orders</Text>
+                )}
+              </View>
+            </View>
+
+            {/* Spread Indicator */}
+            <View style={styles.spreadIndicator}>
+              <Text style={styles.spreadText}>Spread: {calculateSpread()}</Text>
+            </View>
+
+            {/* Buy Orders */}
+            <View style={styles.orderSection}>
+              {buyOrders.map((order, index) => (
+                <View key={order.id.toString()}>
+                  {renderOrderItem({ item: order, type: 'buy' })}
+                </View>
+              ))}
+              {buyOrders.length === 0 && (
+                <Text style={styles.emptyText}>No buy orders</Text>
+              )}
+            </View>
+          </View>
+        ) : (
+          <View style={styles.userOrdersContainer}>
+            {userOrders.length > 0 ? (
+              userOrders.map((order) => (
+                <View key={order.id.toString()}>
+                  {renderUserOrder({ item: order })}
+                </View>
+              ))
+            ) : (
+              <Text style={styles.emptyText}>You have no orders in this market</Text>
+            )}
+          </View>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -147,98 +448,232 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  headerStats: {
-    flexDirection: 'row',
-    padding: 16,
-    backgroundColor: COLORS.backgroundSecondary,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.backgroundTertiary,
-  },
-  headerStatItem: {
+  scrollView: {
     flex: 1,
   },
-  headerStatLabel: {
+  marketSelector: {
+    flexDirection: 'row',
+    padding: 16,
+    gap: 8,
+  },
+  marketButton: {
+    flex: 1,
+    paddingVertical: 12,
+    backgroundColor: COLORS.backgroundSecondary,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  marketButtonActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.backgroundTertiary,
+  },
+  marketButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+  },
+  marketButtonTextActive: {
+    color: COLORS.primary,
+  },
+  marketStats: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statLabel: {
     fontSize: 12,
     color: COLORS.textMuted,
     marginBottom: 4,
   },
-  headerStatValue: {
-    fontSize: 20,
-    fontWeight: 'bold',
+  statValue: {
+    fontSize: 16,
+    fontWeight: '600',
     color: COLORS.textPrimary,
   },
-  listContent: {
+  matchButton: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    backgroundColor: COLORS.primary,
+    borderRadius: 8,
+    padding: 16,
+    alignItems: 'center',
+  },
+  matchButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFF',
+  },
+  matchButtonSubtext: {
+    fontSize: 12,
+    color: '#FFF',
+    opacity: 0.8,
+    marginTop: 4,
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.backgroundTertiary,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  tabActive: {
+    borderBottomWidth: 2,
+    borderBottomColor: COLORS.primary,
+  },
+  tabText: {
+    fontSize: 14,
+    color: COLORS.textMuted,
+    fontWeight: '500',
+  },
+  tabTextActive: {
+    color: COLORS.primary,
+  },
+  loadingContainer: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: COLORS.textMuted,
+  },
+  orderBookContainer: {
     padding: 16,
   },
-  marketCard: {
+  orderSection: {
+    marginBottom: 8,
+  },
+  orderHeader: {
+    flexDirection: 'row',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.backgroundTertiary,
+  },
+  headerText: {
+    flex: 1,
+    fontSize: 12,
+    color: COLORS.textMuted,
+    textAlign: 'center',
+  },
+  orderItem: {
+    flexDirection: 'row',
+    paddingVertical: 6,
+  },
+  buyOrder: {
+    backgroundColor: COLORS.success + '10',
+  },
+  sellOrder: {
+    backgroundColor: COLORS.error + '10',
+  },
+  orderPrice: {
+    flex: 1,
+    fontSize: 14,
+    color: COLORS.textPrimary,
+    textAlign: 'center',
+  },
+  orderAmount: {
+    flex: 1,
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+  },
+  orderTotal: {
+    flex: 1,
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+  },
+  sellOrdersContainer: {
+    marginBottom: 8,
+  },
+  spreadIndicator: {
+    paddingVertical: 12,
+    alignItems: 'center',
     backgroundColor: COLORS.backgroundSecondary,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: COLORS.backgroundTertiary,
+    marginVertical: 8,
+    borderRadius: 4,
   },
-  marketHeader: {
+  spreadText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.warning,
+  },
+  emptyText: {
+    textAlign: 'center',
+    paddingVertical: 20,
+    fontSize: 14,
+    color: COLORS.textMuted,
+  },
+  userOrdersContainer: {
+    padding: 16,
+  },
+  userOrderItem: {
+    backgroundColor: COLORS.backgroundSecondary,
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+  },
+  userOrderHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
   },
-  pairName: {
-    fontSize: 18,
-    fontWeight: 'bold',
+  orderTypeBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  buyBadge: {
+    backgroundColor: COLORS.success + '20',
+  },
+  sellBadge: {
+    backgroundColor: COLORS.error + '20',
+  },
+  orderTypeBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
     color: COLORS.textPrimary,
   },
-  changePercent: {
-    fontSize: 16,
+  orderStatus: {
+    fontSize: 12,
     fontWeight: '600',
   },
-  changePositive: {
-    color: COLORS.success,
+  userOrderDetails: {
+    marginBottom: 12,
   },
-  changeNegative: {
-    color: COLORS.error,
-  },
-  priceContainer: {
-    marginBottom: 16,
-  },
-  priceLabel: {
-    fontSize: 12,
-    color: COLORS.textMuted,
-    marginBottom: 4,
-  },
-  priceValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: COLORS.textPrimary,
-  },
-  statsRow: {
+  userOrderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginBottom: 4,
   },
-  statItem: {
-    flex: 1,
-  },
-  statLabel: {
-    fontSize: 11,
+  userOrderLabel: {
+    fontSize: 14,
     color: COLORS.textMuted,
-    marginBottom: 2,
   },
-  statValue: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
-    fontWeight: '500',
+  userOrderValue: {
+    fontSize: 14,
+    color: COLORS.textPrimary,
   },
-  separator: {
-    height: 12,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  cancelButton: {
+    backgroundColor: COLORS.error,
+    borderRadius: 6,
+    paddingVertical: 8,
     alignItems: 'center',
-    paddingVertical: 48,
   },
-  emptyText: {
-    fontSize: 16,
-    color: COLORS.textMuted,
+  cancelButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFF',
   },
 });

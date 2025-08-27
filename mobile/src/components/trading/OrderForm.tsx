@@ -6,18 +6,26 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
-import { usePorto } from '../../providers/PortoProvider';
+import { usePorto } from '../../providers/SimplePortoProvider';
+import { useCLOBContract } from '../../hooks/useCLOBContract';
 import { COLORS, ORDER_TYPES, ORDER_SIDES } from '../../config/constants';
-import { encodeFunctionData } from 'viem';
-import { CONTRACTS } from '../../config/contracts';
+import { logInfo, logError, logDebug } from '../../utils/logger';
 
 interface OrderFormProps {
-  pair: { base: string; quote: string; symbol: string };
+  pair: {
+    id?: number;
+    base: string;
+    quote: string;
+    symbol: string;
+  };
 }
 
 export function OrderForm({ pair }: OrderFormProps) {
-  const { executeTransaction, delegationStatus } = usePorto();
+  const { delegationStatus, isInitialized } = usePorto();
+  const { placeOrder, loading } = useCLOBContract();
+  
   const [orderSide, setOrderSide] = useState<'buy' | 'sell'>('buy');
   const [orderType, setOrderType] = useState<'market' | 'limit'>('limit');
   const [price, setPrice] = useState('');
@@ -25,70 +33,107 @@ export function OrderForm({ pair }: OrderFormProps) {
   const [total, setTotal] = useState('0.00');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Log component mount
+  React.useEffect(() => {
+    logDebug('OrderForm', 'Component mounted', { 
+      pair: pair?.symbol || 'unknown',
+      delegationStatus,
+      isInitialized 
+    });
+  }, []);
+
   // Calculate total when price or amount changes
   React.useEffect(() => {
-    if (price && amount) {
-      const totalValue = (parseFloat(price) * parseFloat(amount)).toFixed(2);
-      setTotal(totalValue);
-    } else {
+    try {
+      if (price && amount) {
+        const priceNum = parseFloat(price);
+        const amountNum = parseFloat(amount);
+        
+        if (!isNaN(priceNum) && !isNaN(amountNum)) {
+          const totalValue = (priceNum * amountNum).toFixed(2);
+          setTotal(totalValue);
+        } else {
+          setTotal('0.00');
+        }
+      } else {
+        setTotal('0.00');
+      }
+    } catch (error) {
+      logError('OrderForm', 'Failed to calculate total', { error, price, amount });
       setTotal('0.00');
     }
   }, [price, amount]);
 
   const handleSubmit = async () => {
-    if (delegationStatus !== 'deployed') {
-      Alert.alert('Not Ready', 'Please wait for gasless setup to complete');
-      return;
-    }
-
-    if (!price || !amount) {
-      Alert.alert('Invalid Order', 'Please enter price and amount');
-      return;
-    }
-
-    setIsSubmitting(true);
-
     try {
-      // Prepare order data for CLOB contract
-      // Note: This is simplified - actual implementation would need proper encoding
-      const orderData = encodeFunctionData({
-        abi: [{
-          name: orderType === 'limit' ? 'placeLimitOrder' : 'placeMarketOrder',
-          type: 'function',
-          inputs: [
-            { name: 'side', type: 'uint8' },
-            { name: 'price', type: 'uint256' },
-            { name: 'amount', type: 'uint256' },
-          ],
-        }],
-        functionName: orderType === 'limit' ? 'placeLimitOrder' : 'placeMarketOrder',
-        args: [
-          orderSide === 'buy' ? 0 : 1, // 0 for buy, 1 for sell
-          BigInt(Math.floor(parseFloat(price) * 1e18)), // Convert to wei
-          BigInt(Math.floor(parseFloat(amount) * 1e18)), // Convert to wei
-        ],
+      // Validation
+      if (!isInitialized) {
+        Alert.alert('Not Ready', 'Wallet is not initialized');
+        return;
+      }
+
+      if (delegationStatus !== 'ready') {
+        Alert.alert('Not Ready', 'Please setup delegation first (go to Settings)');
+        return;
+      }
+
+      if (!price || !amount) {
+        Alert.alert('Invalid Order', 'Please enter price and amount');
+        return;
+      }
+
+      const priceNum = parseFloat(price);
+      const amountNum = parseFloat(amount);
+
+      if (isNaN(priceNum) || priceNum <= 0) {
+        Alert.alert('Invalid Price', 'Please enter a valid price');
+        return;
+      }
+
+      if (isNaN(amountNum) || amountNum <= 0) {
+        Alert.alert('Invalid Amount', 'Please enter a valid amount');
+        return;
+      }
+
+      // Get book ID from pair
+      const bookId = pair?.id || 1; // Default to book 1 (WETH/USDC)
+
+      setIsSubmitting(true);
+      logInfo('OrderForm', 'Submitting order', {
+        bookId,
+        side: orderSide,
+        price: priceNum,
+        amount: amountNum,
+        total,
       });
 
-      const result = await executeTransaction(
-        CONTRACTS.EnhancedSpotBook.address,
-        orderData
+      // Place order using the CLOB hook
+      const result = await placeOrder(
+        bookId,
+        orderSide === 'buy',
+        price,
+        amount
       );
 
       if (result.success) {
-        Alert.alert('Success', 'Order placed successfully');
+        logInfo('OrderForm', 'Order placed successfully', { bundleId: result.bundleId });
+        Alert.alert('Success', 'Order placed successfully!');
         // Clear form
         setPrice('');
         setAmount('');
+        setTotal('0.00');
       } else {
-        Alert.alert('Error', 'Failed to place order');
+        throw new Error(result.error || 'Failed to place order');
       }
-    } catch (error) {
-      console.error('Order submission failed:', error);
-      Alert.alert('Error', 'Failed to submit order');
+    } catch (error: any) {
+      logError('OrderForm', 'Order submission failed', { error: error.message });
+      Alert.alert('Order Failed', error.message || 'Failed to place order');
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  const isDisabled = loading || isSubmitting || delegationStatus !== 'ready';
 
   return (
     <View style={styles.container}>
@@ -98,64 +143,64 @@ export function OrderForm({ pair }: OrderFormProps) {
           style={[styles.typeButton, orderType === 'limit' && styles.typeButtonActive]}
           onPress={() => setOrderType('limit')}
         >
-          <Text style={[styles.typeButtonText, orderType === 'limit' && styles.typeButtonTextActive]}>
+          <Text style={[styles.typeText, orderType === 'limit' && styles.typeTextActive]}>
             Limit
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.typeButton, orderType === 'market' && styles.typeButtonActive]}
           onPress={() => setOrderType('market')}
+          disabled // Market orders not implemented yet
         >
-          <Text style={[styles.typeButtonText, orderType === 'market' && styles.typeButtonTextActive]}>
+          <Text style={[styles.typeText, orderType === 'market' && styles.typeTextActive]}>
             Market
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Buy/Sell Toggle */}
-      <View style={styles.sideToggle}>
+      {/* Buy/Sell Selector */}
+      <View style={styles.sideSelector}>
         <TouchableOpacity
-          style={[styles.sideButton, orderSide === 'buy' && styles.buyButtonActive]}
+          style={[styles.buyButton, orderSide === 'buy' && styles.buyButtonActive]}
           onPress={() => setOrderSide('buy')}
         >
-          <Text style={[styles.sideButtonText, orderSide === 'buy' && styles.sideButtonTextActive]}>
-            Buy {pair.base}
+          <Text style={[styles.sideText, orderSide === 'buy' && styles.sideTextActive]}>
+            Buy {pair?.base || 'TOKEN'}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.sideButton, orderSide === 'sell' && styles.sellButtonActive]}
+          style={[styles.sellButton, orderSide === 'sell' && styles.sellButtonActive]}
           onPress={() => setOrderSide('sell')}
         >
-          <Text style={[styles.sideButtonText, orderSide === 'sell' && styles.sideButtonTextActive]}>
-            Sell {pair.base}
+          <Text style={[styles.sideText, orderSide === 'sell' && styles.sideTextActive]}>
+            Sell {pair?.base || 'TOKEN'}
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Price Input (for limit orders) */}
-      {orderType === 'limit' && (
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Price ({pair.quote})</Text>
-          <TextInput
-            style={styles.input}
-            value={price}
-            onChangeText={setPrice}
-            placeholder="0.00"
-            placeholderTextColor={COLORS.textMuted}
-            keyboardType="decimal-pad"
-          />
-        </View>
-      )}
+      {/* Price Input */}
+      <View style={styles.inputContainer}>
+        <Text style={styles.inputLabel}>Price ({pair?.quote || 'USD'})</Text>
+        <TextInput
+          style={styles.input}
+          value={price}
+          onChangeText={setPrice}
+          placeholder="0.00"
+          placeholderTextColor={COLORS.textSecondary}
+          keyboardType="decimal-pad"
+          editable={orderType === 'limit'}
+        />
+      </View>
 
       {/* Amount Input */}
-      <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>Amount ({pair.base})</Text>
+      <View style={styles.inputContainer}>
+        <Text style={styles.inputLabel}>Amount ({pair?.base || 'TOKEN'})</Text>
         <TextInput
           style={styles.input}
           value={amount}
           onChangeText={setAmount}
           placeholder="0.00"
-          placeholderTextColor={COLORS.textMuted}
+          placeholderTextColor={COLORS.textSecondary}
           keyboardType="decimal-pad"
         />
       </View>
@@ -163,131 +208,152 @@ export function OrderForm({ pair }: OrderFormProps) {
       {/* Total Display */}
       <View style={styles.totalContainer}>
         <Text style={styles.totalLabel}>Total</Text>
-        <Text style={styles.totalValue}>{total} {pair.quote}</Text>
+        <Text style={styles.totalValue}>{total} {pair?.quote || 'USD'}</Text>
       </View>
 
       {/* Submit Button */}
       <TouchableOpacity
         style={[
           styles.submitButton,
-          orderSide === 'buy' ? styles.buyButton : styles.sellButton,
-          isSubmitting && styles.submitButtonDisabled,
+          orderSide === 'buy' ? styles.buySubmitButton : styles.sellSubmitButton,
+          isDisabled && styles.submitButtonDisabled,
         ]}
         onPress={handleSubmit}
-        disabled={isSubmitting}
+        disabled={isDisabled}
       >
-        <Text style={styles.submitButtonText}>
-          {isSubmitting ? 'Placing Order...' : `${orderSide === 'buy' ? 'Buy' : 'Sell'} ${pair.base}`}
-        </Text>
+        {isSubmitting ? (
+          <ActivityIndicator color={COLORS.background} />
+        ) : (
+          <Text style={styles.submitButtonText}>
+            {delegationStatus !== 'ready' 
+              ? 'Setup Delegation First'
+              : `${orderSide === 'buy' ? 'Buy' : 'Sell'} ${pair?.base || 'TOKEN'}`
+            }
+          </Text>
+        )}
       </TouchableOpacity>
+
+      {/* Status Message */}
+      {delegationStatus !== 'ready' && (
+        <Text style={styles.statusMessage}>
+          ⚠️ Go to Settings to setup gasless trading
+        </Text>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: COLORS.backgroundSecondary,
+    backgroundColor: COLORS.surface,
     borderRadius: 12,
     padding: 16,
-    borderWidth: 1,
-    borderColor: COLORS.backgroundTertiary,
   },
   typeSelector: {
     flexDirection: 'row',
     marginBottom: 16,
-    backgroundColor: COLORS.backgroundTertiary,
-    borderRadius: 8,
-    padding: 2,
   },
   typeButton: {
     flex: 1,
     paddingVertical: 8,
     alignItems: 'center',
     borderRadius: 6,
+    backgroundColor: COLORS.background,
+    marginHorizontal: 4,
   },
   typeButtonActive: {
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.primary,
   },
-  typeButtonText: {
+  typeText: {
     fontSize: 14,
-    color: COLORS.textMuted,
-    fontWeight: '500',
+    color: COLORS.textSecondary,
+    fontWeight: '600',
   },
-  typeButtonTextActive: {
-    color: COLORS.textPrimary,
+  typeTextActive: {
+    color: COLORS.background,
   },
-  sideToggle: {
+  sideSelector: {
     flexDirection: 'row',
     marginBottom: 16,
-    gap: 8,
   },
-  sideButton: {
+  buyButton: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 12,
     alignItems: 'center',
-    borderRadius: 8,
+    borderRadius: 6,
+    backgroundColor: COLORS.background,
+    marginRight: 4,
     borderWidth: 1,
-    borderColor: COLORS.backgroundTertiary,
+    borderColor: COLORS.buyColor,
   },
   buyButtonActive: {
     backgroundColor: COLORS.buyColor,
-    borderColor: COLORS.buyColor,
+  },
+  sellButton: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderRadius: 6,
+    backgroundColor: COLORS.background,
+    marginLeft: 4,
+    borderWidth: 1,
+    borderColor: COLORS.sellColor,
   },
   sellButtonActive: {
     backgroundColor: COLORS.sellColor,
-    borderColor: COLORS.sellColor,
   },
-  sideButtonText: {
+  sideText: {
     fontSize: 14,
-    color: COLORS.textMuted,
+    color: COLORS.textSecondary,
     fontWeight: '600',
   },
-  sideButtonTextActive: {
-    color: COLORS.textPrimary,
+  sideTextActive: {
+    color: COLORS.background,
   },
-  inputGroup: {
-    marginBottom: 16,
+  inputContainer: {
+    marginBottom: 12,
   },
   inputLabel: {
     fontSize: 12,
-    color: COLORS.textMuted,
-    marginBottom: 8,
+    color: COLORS.textSecondary,
+    marginBottom: 4,
   },
   input: {
     backgroundColor: COLORS.background,
-    borderWidth: 1,
-    borderColor: COLORS.backgroundTertiary,
-    borderRadius: 8,
-    padding: 12,
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     fontSize: 16,
-    color: COLORS.textPrimary,
+    color: COLORS.text,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   totalContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: 12,
-    marginBottom: 16,
     borderTopWidth: 1,
-    borderColor: COLORS.backgroundTertiary,
+    borderTopColor: COLORS.border,
+    marginBottom: 16,
   },
   totalLabel: {
     fontSize: 14,
-    color: COLORS.textMuted,
+    color: COLORS.textSecondary,
   },
   totalValue: {
     fontSize: 16,
+    color: COLORS.text,
     fontWeight: '600',
-    color: COLORS.textPrimary,
   },
   submitButton: {
     paddingVertical: 14,
     borderRadius: 8,
     alignItems: 'center',
   },
-  buyButton: {
+  buySubmitButton: {
     backgroundColor: COLORS.buyColor,
   },
-  sellButton: {
+  sellSubmitButton: {
     backgroundColor: COLORS.sellColor,
   },
   submitButtonDisabled: {
@@ -295,7 +361,13 @@ const styles = StyleSheet.create({
   },
   submitButtonText: {
     fontSize: 16,
+    color: COLORS.background,
     fontWeight: '600',
-    color: COLORS.textPrimary,
+  },
+  statusMessage: {
+    marginTop: 12,
+    fontSize: 12,
+    color: COLORS.warning,
+    textAlign: 'center',
   },
 });

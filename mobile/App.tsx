@@ -5,16 +5,18 @@ import { StatusBar } from 'expo-status-bar';
 import { Text, View, StyleSheet } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { logInfo } from './src/utils/logger';
 
-// Import screens (to be created)
+// Import screens
+import { SetupScreen } from './src/screens/SetupScreen';
 import { TradingScreen } from './src/screens/TradingScreen';
 import { PortfolioScreen } from './src/screens/PortfolioScreen';
 import { MarketsScreen } from './src/screens/MarketsScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 
 // Import providers
-import { WebSocketProvider } from './src/providers/WebSocketProvider';
-import { PortoProvider } from './src/providers/PortoProvider';
+import { WebSocketProvider } from './src/providers/MockWebSocketProvider';
+import { PortoProvider, usePorto } from './src/providers/SimplePortoProvider';
 
 const Tab = createBottomTabNavigator();
 const queryClient = new QueryClient();
@@ -41,64 +43,104 @@ function TabBarIcon({ name, focused }: { name: string; focused: boolean }) {
   );
 }
 
+function MainTabs() {
+  return (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        tabBarIcon: ({ focused }) => (
+          <TabBarIcon name={route.name} focused={focused} />
+        ),
+        tabBarActiveTintColor: '#3B82F6',
+        tabBarInactiveTintColor: '#6B7280',
+        tabBarStyle: styles.tabBar,
+        headerStyle: styles.header,
+        headerTintColor: '#fff',
+        tabBarLabel: ({ focused, children }) => (
+          <Text style={[
+            styles.tabBarLabel,
+            focused && styles.tabBarLabelFocused
+          ]}>
+            {children}
+          </Text>
+        ),
+      })}
+    >
+      <Tab.Screen 
+        name="Trading" 
+        component={TradingScreen}
+        options={{
+          headerTitle: 'Trade',
+        }}
+      />
+      <Tab.Screen 
+        name="Portfolio" 
+        component={PortfolioScreen}
+        options={{
+          headerTitle: 'Portfolio',
+        }}
+      />
+      <Tab.Screen 
+        name="Markets" 
+        component={MarketsScreen}
+        options={{
+          headerTitle: 'Markets',
+        }}
+      />
+      <Tab.Screen 
+        name="Settings" 
+        component={SettingsScreen}
+        options={{
+          headerTitle: 'Settings',
+        }}
+      />
+    </Tab.Navigator>
+  );
+}
+
+function AppNavigator() {
+  const { delegationStatus, isInitialized } = usePorto();
+  
+  React.useEffect(() => {
+    logInfo('AppNavigator', 'Navigation state', { 
+      delegationStatus, 
+      isInitialized,
+      shouldShowSetup: delegationStatus !== 'ready'
+    });
+  }, [delegationStatus, isInitialized]);
+  
+  // Show setup screen if delegation is not ready
+  if (delegationStatus !== 'ready') {
+    return (
+      <NavigationContainer>
+        <StatusBar style="light" />
+        <SetupScreen />
+      </NavigationContainer>
+    );
+  }
+  
+  // Show main tabs when setup is complete
+  return (
+    <NavigationContainer>
+      <StatusBar style="light" />
+      <MainTabs />
+    </NavigationContainer>
+  );
+}
+
 export default function App() {
+  // Log app startup
+  React.useEffect(() => {
+    logInfo('App', '🚀 App started successfully');
+    console.log('=== APP STARTED ===');
+    console.log('=== Check Settings > Debug Logs to see all logs ===');
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
         <PortoProvider>
           <WebSocketProvider>
-            <NavigationContainer>
-              <StatusBar style="light" />
-              <Tab.Navigator
-                screenOptions={({ route }) => ({
-                  tabBarIcon: ({ focused }) => (
-                    <TabBarIcon name={route.name} focused={focused} />
-                  ),
-                  tabBarActiveTintColor: '#3B82F6',
-                  tabBarInactiveTintColor: '#6B7280',
-                  tabBarStyle: styles.tabBar,
-                  headerStyle: styles.header,
-                  headerTintColor: '#fff',
-                  tabBarLabel: ({ focused, children }) => (
-                    <Text style={[
-                      styles.tabBarLabel,
-                      focused && styles.tabBarLabelFocused
-                    ]}>
-                      {children}
-                    </Text>
-                  ),
-                })}
-              >
-                <Tab.Screen 
-                  name="Trading" 
-                  component={TradingScreen}
-                  options={{
-                    headerTitle: 'Trade',
-                  }}
-                />
-                <Tab.Screen 
-                  name="Portfolio" 
-                  component={PortfolioScreen}
-                  options={{
-                    headerTitle: 'Portfolio',
-                  }}
-                />
-                <Tab.Screen 
-                  name="Markets" 
-                  component={MarketsScreen}
-                  options={{
-                    headerTitle: 'Markets',
-                  }}
-                />
-                <Tab.Screen 
-                  name="Settings" 
-                  component={SettingsScreen}
-                  options={{
-                    headerTitle: 'Settings',
-                  }}
-                />
-              </Tab.Navigator>
-            </NavigationContainer>
+            <AppNavigator />
           </WebSocketProvider>
         </PortoProvider>
       </QueryClientProvider>

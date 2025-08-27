@@ -8,10 +8,11 @@ export const APP_CONFIG = {
 
 // Storage keys for secure storage
 export const STORAGE_KEYS = {
-  SESSION_KEY: 'session_key',
-  DELEGATION_STATUS: 'delegation_status',
-  USER_ADDRESS: 'user_address',
-  LAST_SYNC: 'last_sync',
+  PRIVATE_KEY: 'privateKey', // Alphanumeric only for SecureStore
+  SESSION_KEY: 'sessionKey',
+  DELEGATION_STATUS: 'delegationStatus',
+  USER_ADDRESS: 'userAddress',
+  LAST_SYNC: 'lastSync',
   THEME: 'theme',
 } as const;
 
@@ -71,7 +72,12 @@ export const COLORS = {
   backgroundSecondary: '#111827',
   backgroundTertiary: '#1F2937',
   
+  // Surface colors
+  surface: '#1F2937',
+  border: '#374151',
+  
   // Text colors
+  text: '#F9FAFB',
   textPrimary: '#F9FAFB',
   textSecondary: '#9CA3AF',
   textMuted: '#6B7280',

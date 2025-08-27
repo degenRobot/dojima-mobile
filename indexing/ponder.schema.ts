@@ -258,6 +258,134 @@ export const hourlyVolume = onchainTable(
 );
 
 // ============================================
+// UNIFIED CLOB V2 SPECIFIC TABLES
+// ============================================
+
+export const TradingBook = onchainTable(
+  "trading_book",
+  (t) => ({
+    id: t.text().primaryKey(), // bookId as string
+    baseToken: t.hex().notNull(),
+    quoteToken: t.hex().notNull(),
+    name: t.text().notNull(),
+    active: t.boolean().notNull().default(true),
+    lastPrice: t.bigint(),
+    volume24h: t.bigint().notNull().default(0n),
+    totalVolume: t.bigint().notNull().default(0n),
+    buyOrderCount: t.integer().notNull().default(0),
+    sellOrderCount: t.integer().notNull().default(0),
+    createdAt: t.integer().notNull(),
+    updatedAt: t.integer().notNull(),
+  }),
+  (table) => ({
+    activeIdx: index("trading_book_active").on(table.active),
+  })
+);
+
+export const CLOBOrder = onchainTable(
+  "clob_order",
+  (t) => ({
+    id: t.text().primaryKey(), // orderId as string
+    trader: t.hex().notNull(),
+    bookId: t.text().notNull(),
+    orderType: t.text().notNull(), // BUY/SELL
+    price: t.bigint().notNull(),
+    amount: t.bigint().notNull(),
+    filled: t.bigint().notNull().default(0n),
+    remaining: t.bigint().notNull(),
+    status: t.text().notNull(), // ACTIVE/PARTIALLY_FILLED/FILLED/CANCELLED
+    timestamp: t.integer().notNull(),
+    txHash: t.hex().notNull(),
+    blockNumber: t.integer().notNull(),
+  }),
+  (table) => ({
+    traderIdx: index("clob_order_trader").on(table.trader),
+    bookStatusIdx: index("clob_order_book_status").on(table.bookId, table.status),
+    bookTypeIdx: index("clob_order_book_type").on(table.bookId, table.orderType),
+  })
+);
+
+export const Trade = onchainTable(
+  "trade_v2",
+  (t) => ({
+    id: t.text().primaryKey(), // unique trade id
+    bookId: t.text().notNull(),
+    buyOrderId: t.text().notNull(),
+    sellOrderId: t.text().notNull(),
+    buyer: t.hex().notNull(),
+    seller: t.hex().notNull(),
+    price: t.bigint().notNull(),
+    amount: t.bigint().notNull(),
+    buyerFee: t.bigint().notNull(),
+    sellerFee: t.bigint().notNull(),
+    timestamp: t.integer().notNull(),
+    txHash: t.hex().notNull(),
+    blockNumber: t.integer().notNull(),
+  }),
+  (table) => ({
+    bookTimestampIdx: index("trade_v2_book_timestamp").on(table.bookId, table.timestamp),
+    buyerIdx: index("trade_v2_buyer").on(table.buyer),
+    sellerIdx: index("trade_v2_seller").on(table.seller),
+  })
+);
+
+export const UserBalance = onchainTable(
+  "user_balance",
+  (t) => ({
+    id: t.text().primaryKey(), // {user}-{token}
+    user: t.hex().notNull(),
+    token: t.hex().notNull(),
+    available: t.bigint().notNull().default(0n),
+    locked: t.bigint().notNull().default(0n),
+    totalDeposited: t.bigint().notNull().default(0n),
+    totalWithdrawn: t.bigint().notNull().default(0n),
+    lastUpdated: t.integer().notNull(),
+  }),
+  (table) => ({
+    userTokenIdx: index("user_balance_user_token").on(table.user, table.token),
+  })
+);
+
+export const UserActivity = onchainTable(
+  "user_activity",
+  (t) => ({
+    id: t.text().primaryKey(), // unique activity id
+    user: t.hex().notNull(),
+    activityType: t.text().notNull(), // ORDER_PLACED/ORDER_CANCELLED/TRADE/DEPOSIT/WITHDRAW
+    bookId: t.text(),
+    orderId: t.text(),
+    token: t.hex(),
+    amount: t.bigint(),
+    price: t.bigint(),
+    timestamp: t.integer().notNull(),
+    txHash: t.hex().notNull(),
+  }),
+  (table) => ({
+    userTimestampIdx: index("user_activity_user_timestamp").on(table.user, table.timestamp),
+    userTypeIdx: index("user_activity_user_type").on(table.user, table.activityType),
+  })
+);
+
+export const MarketStats = onchainTable(
+  "market_stats",
+  (t) => ({
+    id: t.text().primaryKey(), // {bookId}-{period}
+    bookId: t.text().notNull(),
+    period: t.text().notNull(), // 1h/24h/7d
+    high: t.bigint(),
+    low: t.bigint(),
+    open: t.bigint(),
+    close: t.bigint(),
+    volume: t.bigint().notNull().default(0n),
+    trades: t.integer().notNull().default(0),
+    timestamp: t.integer().notNull(),
+  }),
+  (table) => ({
+    bookPeriodIdx: index("market_stats_book_period").on(table.bookId, table.period),
+  })
+);
+
+// ============================================
 // MARKETS & PAIRS
 // ============================================
 
@@ -491,5 +619,83 @@ export const priceLevelRelations = relations(priceLevel, ({ one }) => ({
   market: one(market, {
     fields: [priceLevel.market],
     references: [market.address],
+  }),
+}));
+
+// ============================================
+// UNIFIED CLOB V2 RELATIONS
+// ============================================
+
+export const tradingBookRelations = relations(TradingBook, ({ many }) => ({
+  orders: many(CLOBOrder),
+  trades: many(Trade),
+  marketStats: many(MarketStats),
+  userActivities: many(UserActivity),
+}));
+
+export const clobOrderRelations = relations(CLOBOrder, ({ one, many }) => ({
+  trader: one(account, {
+    fields: [CLOBOrder.trader],
+    references: [account.address],
+  }),
+  book: one(TradingBook, {
+    fields: [CLOBOrder.bookId],
+    references: [TradingBook.id],
+  }),
+  buyTrades: many(Trade, { relationName: "buy_order" }),
+  sellTrades: many(Trade, { relationName: "sell_order" }),
+}));
+
+export const tradeV2Relations = relations(Trade, ({ one }) => ({
+  book: one(TradingBook, {
+    fields: [Trade.bookId],
+    references: [TradingBook.id],
+  }),
+  buyer: one(account, {
+    fields: [Trade.buyer],
+    references: [account.address],
+  }),
+  seller: one(account, {
+    fields: [Trade.seller],
+    references: [account.address],
+  }),
+  buyOrder: one(CLOBOrder, {
+    relationName: "buy_order",
+    fields: [Trade.buyOrderId],
+    references: [CLOBOrder.id],
+  }),
+  sellOrder: one(CLOBOrder, {
+    relationName: "sell_order",
+    fields: [Trade.sellOrderId],
+    references: [CLOBOrder.id],
+  }),
+}));
+
+export const userBalanceRelations = relations(UserBalance, ({ one }) => ({
+  user: one(account, {
+    fields: [UserBalance.user],
+    references: [account.address],
+  }),
+}));
+
+export const userActivityRelations = relations(UserActivity, ({ one }) => ({
+  user: one(account, {
+    fields: [UserActivity.user],
+    references: [account.address],
+  }),
+  book: one(TradingBook, {
+    fields: [UserActivity.bookId],
+    references: [TradingBook.id],
+  }),
+  order: one(CLOBOrder, {
+    fields: [UserActivity.orderId],
+    references: [CLOBOrder.id],
+  }),
+}));
+
+export const marketStatsRelations = relations(MarketStats, ({ one }) => ({
+  book: one(TradingBook, {
+    fields: [MarketStats.bookId],
+    references: [TradingBook.id],
   }),
 }));

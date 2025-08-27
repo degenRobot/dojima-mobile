@@ -5,202 +5,223 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Switch,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as SecureStore from 'expo-secure-store';
-import { usePorto } from '../providers/PortoProvider';
-import { COLORS, APP_CONFIG, STORAGE_KEYS } from '../config/constants';
-import { NETWORK_CONFIG } from '../config/contracts';
+import { usePorto } from '../providers/SimplePortoProvider';
+import { COLORS } from '../config/constants';
+import { CONTRACTS } from '../config/contracts';
+import { encodeFunctionData } from 'viem';
 
-export function SettingsScreen() {
-  const { userAddress, delegationStatus, initializeSession } = usePorto();
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [biometricsEnabled, setBiometricsEnabled] = useState(false);
-  const [devMode, setDevMode] = useState(false);
+export function SettingsScreen({ navigation }: any) {
+  const { 
+    isInitialized, 
+    isConnected, 
+    userAddress, 
+    delegationStatus,
+    setupAccountDelegation,
+    executeTransaction,
+    checkDelegationStatus
+  } = usePorto();
+  
+  const [loading, setLoading] = useState(false);
+  const [testResult, setTestResult] = useState<string>('');
 
-  const handleResetSession = () => {
-    Alert.alert(
-      'Reset Session',
-      'This will clear your session key and require re-initialization. Continue?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reset',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await SecureStore.deleteItemAsync(STORAGE_KEYS.SESSION_KEY);
-              await SecureStore.deleteItemAsync(STORAGE_KEYS.DELEGATION_STATUS);
-              await initializeSession();
-              Alert.alert('Success', 'Session reset successfully');
-            } catch (error) {
-              Alert.alert('Error', 'Failed to reset session');
-            }
-          },
-        },
-      ]
-    );
+  const handleCheckStatus = async () => {
+    try {
+      setLoading(true);
+      await checkDelegationStatus();
+      Alert.alert('Status Checked', `Delegation status: ${delegationStatus}`);
+    } catch (error: any) {
+      Alert.alert('Error', error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleExportKeys = () => {
-    Alert.alert(
-      'Export Keys',
-      'This feature is not available in the demo version.',
-      [{ text: 'OK' }]
-    );
+  const handleSetupDelegation = async () => {
+    if (!isInitialized) {
+      Alert.alert('Not Ready', 'Account is still initializing. Please wait...');
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      const success = await setupAccountDelegation();
+      if (success) {
+        Alert.alert('Success', 'Delegation setup complete!');
+      } else {
+        Alert.alert('Failed', 'Could not setup delegation');
+      }
+    } catch (error: any) {
+      Alert.alert('Error', error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const SettingRow = ({ 
-    label, 
-    value, 
-    onPress, 
-    showArrow = true 
-  }: { 
-    label: string; 
-    value?: string; 
-    onPress?: () => void; 
-    showArrow?: boolean;
-  }) => (
-    <TouchableOpacity 
-      style={styles.settingRow} 
-      onPress={onPress}
-      disabled={!onPress}
-      activeOpacity={onPress ? 0.7 : 1}
-    >
-      <Text style={styles.settingLabel}>{label}</Text>
-      <View style={styles.settingRight}>
-        {value && <Text style={styles.settingValue}>{value}</Text>}
-        {showArrow && onPress && <Text style={styles.arrow}>›</Text>}
-      </View>
-    </TouchableOpacity>
-  );
+  const handleTestTransaction = async () => {
+    try {
+      setLoading(true);
+      setTestResult('Preparing test transaction...');
+      
+      // Simple test: Try to call balanceOf on USDC contract
+      const data = encodeFunctionData({
+        abi: [{
+          name: 'balanceOf',
+          type: 'function',
+          stateMutability: 'view',
+          inputs: [{ name: 'account', type: 'address' }],
+          outputs: [{ name: 'balance', type: 'uint256' }],
+        }],
+        functionName: 'balanceOf',
+        args: [userAddress],
+      });
 
-  const SettingSwitch = ({ 
-    label, 
-    value, 
-    onValueChange 
-  }: { 
-    label: string; 
-    value: boolean; 
-    onValueChange: (value: boolean) => void;
-  }) => (
-    <View style={styles.settingRow}>
-      <Text style={styles.settingLabel}>{label}</Text>
-      <Switch
-        value={value}
-        onValueChange={onValueChange}
-        trackColor={{ false: COLORS.backgroundTertiary, true: COLORS.primary }}
-        thumbColor={COLORS.textPrimary}
-      />
-    </View>
-  );
+      setTestResult('Sending transaction...');
+      
+      const result = await executeTransaction(
+        CONTRACTS.USDC.address,
+        data
+      );
+      
+      setTestResult(`Success! Bundle ID: ${result.bundleId}`);
+      Alert.alert('Transaction Sent', `Bundle ID: ${result.bundleId}`);
+    } catch (error: any) {
+      console.error('Test transaction failed:', error);
+      setTestResult(`Failed: ${error.message}`);
+      Alert.alert('Error', error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const copyAddress = () => {
+    if (userAddress) {
+      // In a real app, use Clipboard API
+      Alert.alert('Address', userAddress);
+    }
+  };
+
+  // Show loading screen while initializing
+  if (!isInitialized && !userAddress) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.loadingText}>Initializing wallet...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView}>
-        {/* Account Section */}
+      <ScrollView contentContainerStyle={styles.content}>
+        <Text style={styles.title}>Settings</Text>
+        
+        {/* Account Info */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Account</Text>
-          <View style={styles.sectionContent}>
-            <SettingRow 
-              label="Wallet Address" 
-              value={userAddress ? `${userAddress.slice(0, 6)}...${userAddress.slice(-4)}` : 'Not connected'} 
-            />
-            <SettingRow 
-              label="Delegation Status" 
-              value={delegationStatus === 'deployed' ? 'Active' : 
-                     delegationStatus === 'pending' ? 'Pending' : 'Inactive'} 
-            />
-            <SettingRow 
-              label="Export Session Keys" 
-              onPress={handleExportKeys}
-            />
+          <Text style={styles.sectionTitle}>Account Information</Text>
+          
+          <View style={styles.infoRow}>
+            <Text style={styles.label}>Porto Status:</Text>
+            <Text style={[
+              styles.value,
+              { color: isConnected ? COLORS.success : COLORS.error }
+            ]}>
+              {isConnected ? 'Connected' : 'Disconnected'}
+            </Text>
           </View>
+          
+          <View style={styles.infoRow}>
+            <Text style={styles.label}>Delegation:</Text>
+            <Text style={[
+              styles.value,
+              { color: delegationStatus === 'ready' ? COLORS.success : COLORS.warning }
+            ]}>
+              {delegationStatus}
+            </Text>
+          </View>
+          
+          <TouchableOpacity style={styles.addressContainer} onPress={copyAddress}>
+            <Text style={styles.label}>Wallet Address:</Text>
+            <Text style={styles.address}>
+              {userAddress ? `${userAddress.slice(0, 6)}...${userAddress.slice(-4)}` : 'Not initialized'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Network Section */}
+        {/* Porto Testing */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Network</Text>
-          <View style={styles.sectionContent}>
-            <SettingRow 
-              label="Network" 
-              value={NETWORK_CONFIG.chainName} 
-            />
-            <SettingRow 
-              label="Chain ID" 
-              value={NETWORK_CONFIG.chainId.toString()} 
-            />
-            <SettingRow 
-              label="Porto Relay" 
-              value="Connected" 
-            />
-          </View>
-        </View>
-
-        {/* Preferences Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Preferences</Text>
-          <View style={styles.sectionContent}>
-            <SettingSwitch
-              label="Push Notifications"
-              value={notificationsEnabled}
-              onValueChange={setNotificationsEnabled}
-            />
-            <SettingSwitch
-              label="Biometric Authentication"
-              value={biometricsEnabled}
-              onValueChange={setBiometricsEnabled}
-            />
-            <SettingSwitch
-              label="Developer Mode"
-              value={devMode}
-              onValueChange={setDevMode}
-            />
-          </View>
-        </View>
-
-        {/* Danger Zone */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, styles.dangerTitle]}>Danger Zone</Text>
-          <View style={styles.sectionContent}>
-            <TouchableOpacity 
-              style={styles.dangerButton}
-              onPress={handleResetSession}
-            >
-              <Text style={styles.dangerButtonText}>Reset Session</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* About Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>About</Text>
-          <View style={styles.sectionContent}>
-            <SettingRow 
-              label="Version" 
-              value={APP_CONFIG.version} 
-            />
-            <SettingRow 
-              label="Support" 
-              value={APP_CONFIG.supportEmail} 
-              onPress={() => Alert.alert('Support', `Email: ${APP_CONFIG.supportEmail}`)}
-            />
-          </View>
-        </View>
-
-        {/* Dev Info (only shown when dev mode is on) */}
-        {devMode && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Developer Info</Text>
-            <View style={[styles.sectionContent, styles.devInfo]}>
-              <Text style={styles.devText}>RPC: {NETWORK_CONFIG.rpcUrl}</Text>
-              <Text style={styles.devText}>WS: {NETWORK_CONFIG.wsUrl}</Text>
-              <Text style={styles.devText}>Porto: {NETWORK_CONFIG.portoRelayUrl}</Text>
+          <Text style={styles.sectionTitle}>Porto Relay Testing</Text>
+          
+          <TouchableOpacity 
+            style={[styles.button, loading && styles.buttonDisabled]}
+            onPress={handleCheckStatus}
+            disabled={loading}
+          >
+            <Text style={styles.buttonText}>Check Delegation Status</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.button, styles.primaryButton, loading && styles.buttonDisabled]}
+            onPress={handleSetupDelegation}
+            disabled={loading || delegationStatus === 'ready'}
+          >
+            <Text style={styles.buttonText}>
+              {delegationStatus === 'ready' ? 'Delegation Ready' : 'Setup Delegation'}
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.button, styles.successButton, loading && styles.buttonDisabled]}
+            onPress={handleTestTransaction}
+            disabled={loading || !isInitialized}
+          >
+            <Text style={styles.buttonText}>Test Gasless Transaction</Text>
+          </TouchableOpacity>
+          
+          {loading && <ActivityIndicator style={styles.loader} color={COLORS.primary} />}
+          
+          {testResult ? (
+            <View style={styles.resultContainer}>
+              <Text style={styles.resultText}>{testResult}</Text>
             </View>
+          ) : null}
+        </View>
+
+        {/* Debug Tools */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Debug Tools</Text>
+          
+          <TouchableOpacity 
+            style={[styles.button, styles.debugButton]}
+            onPress={() => Alert.alert('Debug Logs', 'Check your terminal console for logs.\n\nLogs show as:\n[timestamp] [LEVEL] [Component] message')}
+          >
+            <Text style={styles.buttonText}>📋 View Debug Info</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* App Info */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>App Information</Text>
+          <View style={styles.infoRow}>
+            <Text style={styles.label}>Version:</Text>
+            <Text style={styles.value}>1.0.0</Text>
           </View>
-        )}
+          <View style={styles.infoRow}>
+            <Text style={styles.label}>Network:</Text>
+            <Text style={styles.value}>RISE Testnet</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.label}>CLOB Contract:</Text>
+            <Text style={styles.value}>
+              {CONTRACTS.UnifiedCLOB.address.slice(0, 10)}...
+            </Text>
+          </View>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -211,74 +232,107 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  scrollView: {
-    flex: 1,
+  content: {
+    padding: 16,
   },
-  section: {
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: COLORS.text,
     marginBottom: 24,
   },
+  section: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
   sectionTitle: {
-    fontSize: 12,
+    fontSize: 18,
     fontWeight: '600',
-    color: COLORS.textMuted,
-    textTransform: 'uppercase',
-    marginHorizontal: 16,
-    marginBottom: 8,
+    color: COLORS.text,
+    marginBottom: 16,
   },
-  sectionContent: {
-    backgroundColor: COLORS.backgroundSecondary,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: COLORS.backgroundTertiary,
-  },
-  settingRow: {
+  infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.backgroundTertiary,
+    paddingVertical: 8,
   },
-  settingLabel: {
-    fontSize: 16,
-    color: COLORS.textPrimary,
-  },
-  settingRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  settingValue: {
+  label: {
     fontSize: 14,
     color: COLORS.textSecondary,
-    marginRight: 8,
   },
-  arrow: {
-    fontSize: 20,
-    color: COLORS.textMuted,
+  value: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: COLORS.text,
   },
-  dangerTitle: {
-    color: COLORS.error,
-  },
-  dangerButton: {
-    margin: 16,
+  addressContainer: {
+    marginTop: 8,
     padding: 12,
-    backgroundColor: COLORS.error,
+    backgroundColor: COLORS.background,
     borderRadius: 8,
+  },
+  address: {
+    fontSize: 12,
+    color: COLORS.primary,
+    marginTop: 4,
+    fontFamily: 'monospace',
+  },
+  button: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  primaryButton: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  successButton: {
+    backgroundColor: COLORS.success,
+    borderColor: COLORS.success,
+  },
+  debugButton: {
+    backgroundColor: COLORS.warning,
+    borderColor: COLORS.warning,
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+  buttonText: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  loader: {
+    marginTop: 12,
+  },
+  resultContainer: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: COLORS.background,
+    borderRadius: 8,
+  },
+  resultText: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    fontFamily: 'monospace',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  dangerButtonText: {
-    color: COLORS.textPrimary,
-    fontWeight: '600',
+  loadingText: {
+    marginTop: 16,
     fontSize: 16,
-  },
-  devInfo: {
-    padding: 16,
-  },
-  devText: {
-    fontSize: 12,
-    color: COLORS.textMuted,
-    fontFamily: 'monospace',
-    marginBottom: 4,
+    color: COLORS.textSecondary,
   },
 });

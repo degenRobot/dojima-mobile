@@ -8,17 +8,17 @@ import {
   FlatList,
 } from 'react-native';
 import { COLORS } from '../../config/constants';
-import { TRADING_PAIRS } from '../../config/contracts';
+import { TRADING_BOOKS } from '../../config/contracts';
 
 interface PairSelectorProps {
   selectedPair: { base: string; quote: string; symbol: string };
-  onSelectPair: (pair: typeof TRADING_PAIRS[0]) => void;
+  onSelectPair: (pair: typeof TRADING_BOOKS[0]) => void;
 }
 
 export function PairSelector({ selectedPair, onSelectPair }: PairSelectorProps) {
   const [modalVisible, setModalVisible] = useState(false);
 
-  const handleSelectPair = (pair: typeof TRADING_PAIRS[0]) => {
+  const handleSelectPair = (pair: typeof TRADING_BOOKS[0]) => {
     onSelectPair(pair);
     setModalVisible(false);
   };
@@ -47,7 +47,7 @@ export function PairSelector({ selectedPair, onSelectPair }: PairSelectorProps) 
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Select Trading Pair</Text>
             <FlatList
-              data={TRADING_PAIRS}
+              data={TRADING_BOOKS}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[

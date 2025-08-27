@@ -1,0 +1,282 @@
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
+import { privateKeyToAccount, generatePrivateKey, type PrivateKeyAccount } from 'viem/accounts';
+import * as SecureStore from 'expo-secure-store';
+import { 
+  setupDelegation,
+  sendTransaction,
+  getAccountInfo,
+  checkHealth,
+  createAccount
+} from '../lib/porto/simple-porto';
+import { STORAGE_KEYS } from '../config/constants';
+import { logDebug, logInfo, logWarn, logError } from '../utils/logger';
+import type { Address, Hex } from 'viem';
+
+interface PortoContextType {
+  isInitialized: boolean;
+  isConnected: boolean;
+  account: PrivateKeyAccount | null;
+  userAddress: string | null;
+  delegationStatus: 'none' | 'checking' | 'setting-up' | 'ready' | 'error';
+  initializeAccount: () => Promise<void>;
+  setupAccountDelegation: () => Promise<boolean>;
+  executeTransaction: (to: Address, data: Hex, value?: Hex) => Promise<any>;
+  checkDelegationStatus: () => Promise<void>;
+}
+
+const PortoContext = createContext<PortoContextType>({
+  isInitialized: false,
+  isConnected: false,
+  account: null,
+  userAddress: null,
+  delegationStatus: 'none',
+  initializeAccount: async () => {},
+  setupAccountDelegation: async () => false,
+  executeTransaction: async () => {},
+  checkDelegationStatus: async () => {},
+});
+
+export const PortoProvider = ({ children }: { children: ReactNode }) => {
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [account, setAccount] = useState<PrivateKeyAccount | null>(null);
+  const [delegationStatus, setDelegationStatus] = useState<PortoContextType['delegationStatus']>('none');
+  
+  // Use ref to always have current account value
+  const accountRef = useRef<PrivateKeyAccount | null>(null);
+  
+  // Update ref when account changes
+  useEffect(() => {
+    accountRef.current = account;
+    logDebug('PortoProvider', 'Account ref updated', { 
+      address: account?.address,
+      hasAccount: !!account 
+    });
+  }, [account]);
+
+  // Initialize account from storage or create new
+  const initializeAccount = useCallback(async () => {
+    try {
+      logInfo('PortoProvider', 'Starting account initialization...');
+      
+      // Try to load existing private key
+      let privateKey: string | null = null;
+      
+      try {
+        privateKey = await SecureStore.getItemAsync(STORAGE_KEYS.PRIVATE_KEY);
+        if (privateKey) {
+          logInfo('PortoProvider', 'Found existing private key in storage');
+        }
+      } catch (readError) {
+        logWarn('PortoProvider', 'No existing key found or SecureStore error', { error: readError });
+      }
+      
+      if (!privateKey) {
+        // Generate new account
+        logInfo('PortoProvider', 'Generating new private key...');
+        logDebug('PortoProvider', 'generatePrivateKey type', { type: typeof generatePrivateKey });
+        
+        // Try to generate private key with error handling
+        try {
+          if (typeof generatePrivateKey === 'function') {
+            privateKey = generatePrivateKey();
+            logInfo('PortoProvider', 'Generated private key using viem');
+          } else {
+            // Fallback: generate random hex string manually
+            logWarn('PortoProvider', 'Using fallback private key generation');
+            const randomBytes = new Uint8Array(32);
+            crypto.getRandomValues(randomBytes);
+            privateKey = '0x' + Array.from(randomBytes)
+              .map(b => b.toString(16).padStart(2, '0'))
+              .join('') as Hex;
+          }
+          
+          logInfo('PortoProvider', 'Generated private key successfully');
+          
+          try {
+            await SecureStore.setItemAsync(STORAGE_KEYS.PRIVATE_KEY, privateKey);
+            logInfo('PortoProvider', 'Saved new private key to storage');
+          } catch (saveError) {
+            logError('PortoProvider', 'Failed to save private key to storage', { error: saveError });
+            // Continue anyway - we can use the account in memory
+          }
+        } catch (genError) {
+          logError('PortoProvider', 'Failed to generate private key', { error: genError });
+          throw genError;
+        }
+      }
+
+      const acc = createAccount(privateKey as Hex);
+      logInfo('PortoProvider', 'Created account', { address: acc.address });
+      
+      setAccount(acc);
+      accountRef.current = acc;
+      setIsInitialized(true);
+      logInfo('PortoProvider', 'Account initialization complete');
+      
+      return;
+    } catch (error) {
+      logError('PortoProvider', 'Failed to initialize account', { error });
+      setDelegationStatus('error');
+      setIsInitialized(false);
+    }
+  }, []);
+
+  // Check if account is delegated
+  const checkDelegationStatus = useCallback(async () => {
+    const currentAccount = accountRef.current;
+    if (!currentAccount) {
+      logWarn('PortoProvider', 'No account available for delegation check');
+      setDelegationStatus('none');
+      setIsConnected(false);
+      return;
+    }
+    
+    try {
+      setDelegationStatus('checking');
+      logInfo('PortoProvider', 'Checking delegation status', { address: currentAccount.address });
+      
+      const info = await getAccountInfo(currentAccount.address);
+      logDebug('PortoProvider', 'Delegation info received', info);
+      
+      if (info.isDelegated) {
+        logInfo('PortoProvider', 'Account is delegated and ready');
+        setDelegationStatus('ready');
+        setIsConnected(true);
+      } else {
+        logInfo('PortoProvider', 'Account is not delegated - needs setup');
+        setDelegationStatus('none');
+        setIsConnected(false);
+      }
+    } catch (error: any) {
+      logWarn('PortoProvider', 'Delegation check failed, assuming not delegated', { 
+        error: error.message || error 
+      });
+      // Instead of error state, assume not delegated
+      // This is expected for new accounts
+      setDelegationStatus('none');
+      setIsConnected(false);
+    }
+  }, []);
+
+  // Setup delegation for the account
+  const setupAccountDelegation = useCallback(async (): Promise<boolean> => {
+    const currentAccount = accountRef.current;
+    if (!currentAccount) {
+      logError('PortoProvider', 'No account available to setup delegation');
+      return false;
+    }
+
+    try {
+      setDelegationStatus('setting-up');
+      logInfo('PortoProvider', 'Setting up delegation', { address: currentAccount.address });
+      
+      const success = await setupDelegation(currentAccount);
+      
+      if (success) {
+        setDelegationStatus('ready');
+        setIsConnected(true);
+        logInfo('PortoProvider', 'Delegation setup successful');
+        return true;
+      } else {
+        setDelegationStatus('error');
+        logError('PortoProvider', 'Delegation setup failed');
+        return false;
+      }
+    } catch (error) {
+      logError('PortoProvider', 'Failed to setup delegation', { error });
+      setDelegationStatus('error');
+      return false;
+    }
+  }, []);
+
+  // Execute transaction
+  const executeTransaction = useCallback(async (to: Address, data: Hex, value: Hex = '0x0') => {
+    const currentAccount = accountRef.current;
+    if (!currentAccount) {
+      logError('PortoProvider', 'No account available for transaction');
+      throw new Error('No account available for transaction');
+    }
+
+    // Setup delegation if needed (first transaction will deploy it)
+    if (delegationStatus !== 'ready') {
+      logInfo('PortoProvider', 'Setting up delegation on first transaction...');
+      const success = await setupAccountDelegation();
+      if (!success) {
+        logError('PortoProvider', 'Failed to setup delegation for transaction');
+        throw new Error('Failed to setup delegation');
+      }
+    }
+
+    // Send the transaction
+    logDebug('PortoProvider', 'Sending transaction', { 
+      from: currentAccount.address,
+      to,
+      value 
+    });
+    const result = await sendTransaction(currentAccount, to, data, value);
+    logInfo('PortoProvider', 'Transaction sent successfully', { bundleId: result?.bundleId });
+    return result;
+  }, [delegationStatus, setupAccountDelegation]);
+
+  // Check Porto health on mount
+  useEffect(() => {
+    const checkConnection = async () => {
+      try {
+        logInfo('PortoProvider', 'Checking Porto relay health...');
+        const health = await checkHealth();
+        logInfo('PortoProvider', 'Porto relay health check successful', health);
+        setIsConnected(true);
+      } catch (error) {
+        logError('PortoProvider', 'Porto relay not reachable', { error });
+        setIsConnected(false);
+      }
+    };
+
+    checkConnection();
+  }, []);
+
+  // Initialize account on mount
+  useEffect(() => {
+    logInfo('PortoProvider', 'PortoProvider mounting, initializing account...');
+    initializeAccount();
+  }, [initializeAccount]);
+
+  // Check delegation status when account is set and connected
+  useEffect(() => {
+    if (account && isConnected) {
+      logInfo('PortoProvider', 'Account and connection ready, checking delegation...', {
+        address: account.address,
+        isConnected
+      });
+      checkDelegationStatus();
+    } else {
+      logDebug('PortoProvider', 'Waiting for account or connection', {
+        hasAccount: !!account,
+        isConnected
+      });
+    }
+  }, [account, isConnected, checkDelegationStatus]);
+
+  const value: PortoContextType = {
+    isInitialized,
+    isConnected,
+    account,
+    userAddress: account?.address || null,
+    delegationStatus,
+    initializeAccount,
+    setupAccountDelegation,
+    executeTransaction,
+    checkDelegationStatus,
+  };
+
+  return <PortoContext.Provider value={value}>{children}</PortoContext.Provider>;
+};
+
+export const usePorto = () => {
+  const context = useContext(PortoContext);
+  if (!context) {
+    throw new Error('usePorto must be used within PortoProvider');
+  }
+  return context;
+};

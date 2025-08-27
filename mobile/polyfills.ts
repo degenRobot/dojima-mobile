@@ -1,6 +1,21 @@
 // Polyfills for React Native web3 support
-import "react-native-url-polyfill/auto";
+// MUST BE IMPORTED FIRST!
+
+// Import crypto polyfill
 import "react-native-get-random-values";
+
+// Import TextEncoder/TextDecoder polyfills BEFORE other imports
+import 'fast-text-encoding';
+
+// Add global TextEncoder/TextDecoder if not already present
+if (typeof global.TextEncoder === 'undefined') {
+  const { TextEncoder, TextDecoder } = require('fast-text-encoding');
+  global.TextEncoder = TextEncoder;
+  global.TextDecoder = TextDecoder;
+}
+
+// Import URL polyfill
+import "react-native-url-polyfill/auto";
 import { randomUUID } from "expo-crypto";
 
 // Add randomUUID to crypto
