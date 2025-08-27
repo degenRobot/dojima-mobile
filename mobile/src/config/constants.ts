@@ -11,6 +11,7 @@ export const STORAGE_KEYS = {
   PRIVATE_KEY: 'privateKey', // Alphanumeric only for SecureStore
   SESSION_KEY: 'sessionKey',
   DELEGATION_STATUS: 'delegationStatus',
+  HAS_DELEGATED: 'hasDelegated', // Track if delegation has been setup
   USER_ADDRESS: 'userAddress',
   LAST_SYNC: 'lastSync',
   THEME: 'theme',

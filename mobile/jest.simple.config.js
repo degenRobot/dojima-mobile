@@ -12,7 +12,7 @@ module.exports = {
   },
   testEnvironment: 'node',
   testMatch: [
-    '**/src/**/__tests__/simple*.test.{js,ts}',
+    '**/src/**/__tests__/simple*.test.{js,ts,tsx}',
   ],
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',

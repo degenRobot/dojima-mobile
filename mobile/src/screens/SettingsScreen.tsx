@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,9 +10,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePorto } from '../providers/SimplePortoProvider';
+import { getWalletKeys } from '../lib/porto/simple-porto';
 import { COLORS } from '../config/constants';
-import { CONTRACTS } from '../config/contracts';
-import { encodeFunctionData } from 'viem';
+import { CONTRACTS, NETWORK_CONFIG } from '../config/contracts';
+import { encodeFunctionData, type Address } from 'viem';
 
 export function SettingsScreen({ navigation }: any) {
   const { 
@@ -22,17 +23,34 @@ export function SettingsScreen({ navigation }: any) {
     delegationStatus,
     setupAccountDelegation,
     executeTransaction,
-    checkDelegationStatus
+    checkDelegationStatus,
+    resetWallet
   } = usePorto();
   
   const [loading, setLoading] = useState(false);
   const [testResult, setTestResult] = useState<string>('');
+  const [delegationKeys, setDelegationKeys] = useState<any[]>([]);
+  const [showKeyDetails, setShowKeyDetails] = useState(false);
 
   const handleCheckStatus = async () => {
     try {
       setLoading(true);
       await checkDelegationStatus();
-      Alert.alert('Status Checked', `Delegation status: ${delegationStatus}`);
+      
+      // Get wallet keys for detailed info
+      if (userAddress) {
+        try {
+          const keys = await getWalletKeys(userAddress as Address);
+          if (keys && keys.length > 0) {
+            setDelegationKeys(keys);
+            setShowKeyDetails(true);
+          } else {
+            Alert.alert('Delegation Status', `Status: ${delegationStatus}\n\nNo keys found. Account needs delegation setup.`);
+          }
+        } catch (error) {
+          Alert.alert('Delegation Status', `Status: ${delegationStatus}\n\nCouldn't fetch key details.`);
+        }
+      }
     } catch (error: any) {
       Alert.alert('Error', error.message);
     } finally {
@@ -162,8 +180,28 @@ export function SettingsScreen({ navigation }: any) {
             onPress={handleCheckStatus}
             disabled={loading}
           >
-            <Text style={styles.buttonText}>Check Delegation Status</Text>
+            <Text style={styles.buttonText}>Check Delegation Status & Keys</Text>
           </TouchableOpacity>
+          
+          {/* Show key details if available */}
+          {showKeyDetails && delegationKeys.length > 0 && (
+            <View style={styles.keyDetailsContainer}>
+              <Text style={styles.keyDetailsTitle}>Delegation Keys:</Text>
+              {delegationKeys.map((key, index) => (
+                <View key={index} style={styles.keyItem}>
+                  <Text style={styles.keyLabel}>Key #{index + 1}</Text>
+                  <Text style={styles.keyValue}>Type: {key.key?.type || 'Unknown'}</Text>
+                  <Text style={styles.keyValue}>Role: {key.key?.role || 'Unknown'}</Text>
+                  {key.key?.expiry && (
+                    <Text style={styles.keyValue}>Expiry: {key.key.expiry === '0x0' ? 'Never' : new Date(parseInt(key.key.expiry) * 1000).toLocaleDateString()}</Text>
+                  )}
+                  {key.permissions && key.permissions.length > 0 && (
+                    <Text style={styles.keyValue}>Permissions: {key.permissions.length} rule(s)</Text>
+                  )}
+                </View>
+              ))}
+            </View>
+          )}
           
           <TouchableOpacity 
             style={[styles.button, styles.primaryButton, loading && styles.buttonDisabled]}
@@ -201,6 +239,37 @@ export function SettingsScreen({ navigation }: any) {
             onPress={() => Alert.alert('Debug Logs', 'Check your terminal console for logs.\n\nLogs show as:\n[timestamp] [LEVEL] [Component] message')}
           >
             <Text style={styles.buttonText}>📋 View Debug Info</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.button, styles.dangerButton]}
+            onPress={() => {
+              Alert.alert(
+                'Reset Wallet',
+                'This will clear your current wallet and create a new one. You will lose access to any funds in the current wallet. Are you sure?',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { 
+                    text: 'Reset', 
+                    style: 'destructive',
+                    onPress: async () => {
+                      try {
+                        setLoading(true);
+                        await resetWallet();
+                        Alert.alert('Success', 'Wallet has been reset. You now have a new wallet address.');
+                      } catch (error: any) {
+                        Alert.alert('Error', 'Failed to reset wallet: ' + error.message);
+                      } finally {
+                        setLoading(false);
+                      }
+                    }
+                  }
+                ]
+              );
+            }}
+            disabled={loading}
+          >
+            <Text style={styles.buttonText}>🔄 Reset Wallet (Testing)</Text>
           </TouchableOpacity>
         </View>
 
@@ -303,6 +372,10 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.warning,
     borderColor: COLORS.warning,
   },
+  dangerButton: {
+    backgroundColor: COLORS.error,
+    borderColor: COLORS.error,
+  },
   buttonDisabled: {
     opacity: 0.5,
   },
@@ -334,5 +407,35 @@ const styles = StyleSheet.create({
     marginTop: 16,
     fontSize: 16,
     color: COLORS.textSecondary,
+  },
+  keyDetailsContainer: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: COLORS.background,
+    borderRadius: 8,
+  },
+  keyDetailsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.text,
+    marginBottom: 8,
+  },
+  keyItem: {
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  keyLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.primary,
+    marginBottom: 4,
+  },
+  keyValue: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
+    marginLeft: 8,
+    marginTop: 2,
   },
 });

@@ -7,6 +7,8 @@
 import { privateKeyToAccount, generatePrivateKey, type PrivateKeyAccount } from 'viem/accounts';
 import type { Hex, Address } from 'viem';
 import { NETWORK_CONFIG, CONTRACTS } from '../../config/contracts';
+import * as SecureStore from 'expo-secure-store';
+import { STORAGE_KEYS } from '../../config/constants';
 
 // Configuration
 export const PORTO_CONFIG = {
@@ -85,7 +87,10 @@ export async function checkHealth(): Promise<string> {
  */
 export async function getWalletKeys(address: Address): Promise<any> {
   try {
-    const response = await relayCall('wallet_getKeys', [address]);
+    const response = await relayCall('wallet_getKeys', [{
+      address: address,
+      chainId: `0x${PORTO_CONFIG.chainId.toString(16)}`, // Convert to hex
+    }]);
     return response.result;
   } catch (error) {
     console.log('wallet_getKeys failed (expected for new accounts):', error);
@@ -130,11 +135,12 @@ export async function getAccountInfo(address: Address): Promise<{
   keys?: any;
 }> {
   try {
-    // First try to get wallet keys
+    // First try to get wallet keys - this is the most reliable check for Porto delegation
     const keys = await getWalletKeys(address);
     
-    // If we have keys, account is likely delegated
-    if (keys && keys.length > 0) {
+    // IMPORTANT: Empty array means no keys = not delegated
+    // Only consider delegated if we have actual keys
+    if (keys && Array.isArray(keys) && keys.length > 0) {
       return {
         isDelegated: true,
         delegationAddress: PORTO_CONFIG.proxy,
@@ -142,12 +148,13 @@ export async function getAccountInfo(address: Address): Promise<{
       };
     }
     
-    // Fall back to RPC check
-    const isDelegatedViaRPC = await checkDelegationViaRPC(address);
-    
+    // If wallet_getKeys returned empty array or null, account is NOT delegated
+    // Don't fall back to RPC check as it can give false positives with Porto
+    console.log('[Porto] No delegation keys found - account needs delegation setup');
     return {
-      isDelegated: isDelegatedViaRPC,
-      delegationAddress: isDelegatedViaRPC ? PORTO_CONFIG.proxy : undefined,
+      isDelegated: false,
+      delegationAddress: undefined,
+      keys: keys || [],
     };
   } catch (error) {
     console.error('Failed to get account info:', error);
@@ -218,27 +225,36 @@ export async function setupDelegation(account: PrivateKeyAccount): Promise<boole
       return true;
     }
 
-    // Prepare delegation
-    console.log('[Porto] Preparing delegation with proxy:', PORTO_CONFIG.proxy);
+    // Step 1: Prepare delegation
+    console.log('[Porto] Step 1: Preparing delegation with proxy:', PORTO_CONFIG.proxy);
     const prepareResponse = await prepareUpgradeAccount(account);
     
     if (!prepareResponse || !prepareResponse.digests) {
       throw new Error('Invalid prepare response');
     }
     
-    // Store delegation
-    console.log('[Porto] Storing delegation signatures...');
+    console.log('[Porto] Auth digest:', prepareResponse.digests.auth.substring(0, 20) + '...');
+    console.log('[Porto] Exec digest:', prepareResponse.digests.exec.substring(0, 20) + '...');
+    
+    // Step 2: Store delegation signatures in relay
+    console.log('[Porto] Step 2: Storing delegation signatures...');
     await upgradeAccount(account, prepareResponse);
     
-    // Verify delegation was stored
-    console.log('[Porto] Verifying delegation setup...');
-    const verifyInfo = await getAccountInfo(account.address);
+    console.log('[Porto] ✅ Delegation stored in relay');
     
-    if (!verifyInfo.isDelegated) {
-      console.warn('[Porto] Delegation not immediately confirmed, will be set on first transaction');
+    // IMPORTANT: Delegation is now stored but won't show in wallet_getKeys until first transaction
+    // The first transaction will include the delegation deployment as a preCall
+    // We mark this as successful since the signatures are stored
+    console.log('[Porto] Delegation setup complete - will be deployed on first transaction');
+    
+    // Store a flag that delegation has been setup but not yet deployed
+    // This prevents the app from trying to set it up again
+    try {
+      await SecureStore.setItemAsync(STORAGE_KEYS.HAS_DELEGATED, 'true');
+    } catch (e) {
+      // SecureStore might not be available in all environments
     }
     
-    console.log('[Porto] Delegation setup complete');
     return true;
   } catch (error: any) {
     console.error('[Porto] Failed to setup delegation:', error.message || error);
@@ -328,18 +344,36 @@ export async function waitForTransaction(
 ): Promise<any> {
   let attempts = 0;
   
+  console.log(`[Porto] Waiting for transaction ${bundleId}...`);
+  
   while (attempts < maxAttempts) {
     await new Promise(resolve => setTimeout(resolve, 2000));
     
-    const status = await getCallsStatus(bundleId);
-    if (status.status === 200 || status.status === 'success') {
-      return status;
+    try {
+      const status = await getCallsStatus(bundleId);
+      
+      // Check for success status
+      if (status.status === 200 || status.status === 'success') {
+        console.log(`[Porto] Transaction confirmed:`, bundleId);
+        return status;
+      }
+      
+      // Check for failed status
+      if (status.status === 'failed' || status.receipts?.[0]?.status === '0x0') {
+        console.error(`[Porto] Transaction failed:`, bundleId);
+        throw new Error('Transaction failed');
+      }
+    } catch (error) {
+      // Status might not be available yet, continue waiting
+      if (attempts > 5) {
+        console.log(`[Porto] Still waiting for ${bundleId}... (attempt ${attempts})`);
+      }
     }
     
     attempts++;
   }
   
-  throw new Error('Transaction timeout');
+  throw new Error('Transaction timeout after ' + (maxAttempts * 2) + ' seconds');
 }
 
 /**
@@ -351,6 +385,8 @@ export async function sendTransaction(
   data: Hex,
   value: Hex = '0x0'
 ): Promise<{ bundleId: string; status: any }> {
+  console.log(`[Porto] Sending transaction to ${to}`);
+  
   // Prepare the transaction
   const prepareResult = await prepareCalls(account, [{
     to,
@@ -358,14 +394,23 @@ export async function sendTransaction(
     value
   }]);
 
+  // Check if delegation will be deployed
+  const preCallCount = prepareResult.context?.quote?.intent?.encodedPreCalls?.length || 0;
+  if (preCallCount > 0) {
+    console.log(`[Porto] Transaction will deploy delegation + execute call`);
+  }
+
   // Send it
   const sendResult = await sendPreparedCalls(account, prepareResult);
+  const bundleId = sendResult.id || sendResult;
+
+  console.log(`[Porto] Transaction sent with bundle ID: ${bundleId}`);
 
   // Wait for confirmation
-  const status = await waitForTransaction(sendResult.id);
+  const status = await waitForTransaction(bundleId);
 
   return {
-    bundleId: sendResult.id,
+    bundleId,
     status
   };
 }

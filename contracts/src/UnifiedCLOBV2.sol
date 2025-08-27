@@ -146,6 +146,17 @@ contract UnifiedCLOBV2 is Ownable {
         uint256 timestamp
     );
     
+    event MarketOrderExecuted(
+        address indexed trader,
+        uint256 indexed bookId,
+        OrderType orderType,
+        uint256 requestedAmount,
+        uint256 filledAmount,
+        uint256 avgPrice,
+        uint256 ordersMatched,
+        uint256 timestamp
+    );
+    
     // Market data
     event PriceUpdate(
         uint256 indexed bookId,
@@ -309,6 +320,189 @@ contract UnifiedCLOBV2 is Ownable {
         emit OrderPlaced(orderId, bookId, msg.sender, orderType, price, amount, block.timestamp);
         
         return orderId;
+    }
+    
+    /// @notice Place a market order (immediate execution against order book)
+    /// @param bookId The trading book ID
+    /// @param orderType BUY or SELL
+    /// @param amount Amount to trade (normalized to 18 decimals)
+    /// @param maxSlippage Maximum price slippage allowed (basis points, e.g., 100 = 1%)
+    function placeMarketOrder(
+        uint256 bookId,
+        OrderType orderType,
+        uint256 amount,
+        uint256 maxSlippage
+    ) external validBook(bookId) returns (uint256 totalFilled, uint256 avgPrice) {
+        require(amount > 0, "Amount must be positive");
+        require(maxSlippage <= 10000, "Invalid slippage"); // Max 100%
+        
+        TradingBook storage book = tradingBooks[bookId];
+        uint256 remainingAmount = amount;
+        uint256 totalQuoteAmount = 0;
+        uint256 ordersMatched = 0;
+        
+        // Get opposite side order book
+        uint256[] storage targetOrders = orderType == OrderType.BUY ? 
+            sellOrders[bookId] : 
+            buyOrders[bookId];
+        
+        require(targetOrders.length > 0, "No orders to match");
+        
+        // Calculate slippage limit price
+        uint256 bestPrice = orders[targetOrders[0]].price;
+        uint256 limitPrice;
+        if (orderType == OrderType.BUY) {
+            // For buy orders, max price is best ask * (1 + slippage)
+            limitPrice = bestPrice + (bestPrice * maxSlippage / 10000);
+        } else {
+            // For sell orders, min price is best bid * (1 - slippage)
+            limitPrice = bestPrice > (bestPrice * maxSlippage / 10000) ?
+                bestPrice - (bestPrice * maxSlippage / 10000) : 0;
+        }
+        
+        // Pre-check that trader has sufficient balance
+        if (orderType == OrderType.BUY) {
+            // For buy, estimate max cost (worst case all at limit price)
+            uint256 maxCost = (amount * limitPrice) / 1e18;
+            require(balances[msg.sender][book.quoteToken].available >= maxCost, "Insufficient balance for max slippage");
+        } else {
+            // For sell, need the base tokens
+            require(balances[msg.sender][book.baseToken].available >= amount, "Insufficient base balance");
+        }
+        
+        // Process matching orders
+        uint256 i = 0;
+        while (i < targetOrders.length && remainingAmount > 0 && i < 100) { // Max 100 orders
+            Order storage targetOrder = orders[targetOrders[i]];
+            
+            // Skip non-active orders
+            if (targetOrder.status != OrderStatus.ACTIVE && 
+                targetOrder.status != OrderStatus.PARTIALLY_FILLED) {
+                i++;
+                continue;
+            }
+            
+            // Check slippage protection
+            if (orderType == OrderType.BUY && targetOrder.price > limitPrice) break;
+            if (orderType == OrderType.SELL && targetOrder.price < limitPrice) break;
+            
+            // Calculate fill amount
+            uint256 availableAmount = targetOrder.amount - targetOrder.filled;
+            uint256 fillAmount = remainingAmount > availableAmount ? availableAmount : remainingAmount;
+            
+            // Update target order
+            targetOrder.filled += fillAmount;
+            OrderStatus oldStatus = targetOrder.status;
+            if (targetOrder.filled == targetOrder.amount) {
+                targetOrder.status = OrderStatus.FILLED;
+            } else {
+                targetOrder.status = OrderStatus.PARTIALLY_FILLED;
+            }
+            
+            // Calculate fees (0 for now, can be added later)
+            uint256 buyerFee = 0;
+            uint256 sellerFee = 0;
+            
+            // Execute token transfers
+            if (orderType == OrderType.BUY) {
+                // Market buyer pays quote, receives base
+                uint256 quoteCost = (fillAmount * targetOrder.price) / 1e18;
+                balances[msg.sender][book.quoteToken].available -= quoteCost;
+                balances[msg.sender][book.baseToken].available += fillAmount - buyerFee;
+                
+                // Limit seller receives quote, loses locked base
+                balances[targetOrder.trader][book.baseToken].locked -= fillAmount;
+                balances[targetOrder.trader][book.quoteToken].available += quoteCost - sellerFee;
+                
+                // Collect fees
+                collectedFees[book.baseToken] += buyerFee;
+                collectedFees[book.quoteToken] += sellerFee;
+                
+                // Emit match event
+                emit OrderMatched(
+                    0, // Market order has no ID
+                    targetOrder.id,
+                    bookId,
+                    msg.sender,
+                    targetOrder.trader,
+                    targetOrder.price,
+                    fillAmount,
+                    buyerFee,
+                    sellerFee,
+                    block.timestamp
+                );
+            } else {
+                // Market seller pays base, receives quote
+                uint256 quoteAmount = (fillAmount * targetOrder.price) / 1e18;
+                balances[msg.sender][book.baseToken].available -= fillAmount;
+                balances[msg.sender][book.quoteToken].available += quoteAmount - sellerFee;
+                
+                // Limit buyer receives base, loses locked quote
+                balances[targetOrder.trader][book.quoteToken].locked -= quoteAmount;
+                balances[targetOrder.trader][book.baseToken].available += fillAmount - buyerFee;
+                
+                // Collect fees
+                collectedFees[book.baseToken] += buyerFee;
+                collectedFees[book.quoteToken] += sellerFee;
+                
+                // Emit match event
+                emit OrderMatched(
+                    targetOrder.id,
+                    0, // Market order has no ID
+                    bookId,
+                    targetOrder.trader,
+                    msg.sender,
+                    targetOrder.price,
+                    fillAmount,
+                    buyerFee,
+                    sellerFee,
+                    block.timestamp
+                );
+            }
+            
+            // Update totals
+            remainingAmount -= fillAmount;
+            totalFilled += fillAmount;
+            totalQuoteAmount += (fillAmount * targetOrder.price) / 1e18;
+            ordersMatched++;
+            
+            // Update order status
+            if (oldStatus != targetOrder.status) {
+                emit OrderStatusChanged(targetOrder.id, oldStatus, targetOrder.status, block.timestamp);
+            }
+            
+            // Remove filled order from book if complete
+            if (targetOrder.status == OrderStatus.FILLED) {
+                _removeOrderFromBook(bookId, targetOrder.id, targetOrder.orderType);
+            }
+            
+            i++;
+        }
+        
+        require(totalFilled > 0, "No orders matched");
+        
+        // Calculate average execution price
+        avgPrice = (totalQuoteAmount * 1e18) / totalFilled;
+        
+        // Update book stats
+        book.totalVolume += totalQuoteAmount;
+        book.lastPrice = avgPrice;
+        
+        // Emit market order event
+        emit MarketOrderExecuted(
+            msg.sender,
+            bookId,
+            orderType,
+            amount,
+            totalFilled,
+            avgPrice,
+            ordersMatched,
+            block.timestamp
+        );
+        
+        emit PriceUpdate(bookId, avgPrice, block.timestamp);
+        
+        return (totalFilled, avgPrice);
     }
     
     /// @notice Cancel an order

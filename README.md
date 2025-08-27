@@ -1,66 +1,70 @@
-# Dojima - Central Limit Order Book (CLOB) on RISE
+# Dojima Mobile - Decentralized Trading Platform on RISE
 
-A full-stack decentralized exchange implementation featuring an on-chain order book, real-time indexing, and modern trading interface built on RISE blockchain.
+A comprehensive mobile and web trading platform featuring an on-chain Central Limit Order Book (CLOB), gasless transactions via Porto Protocol, and real-time order execution on RISE blockchain.
 
 ## Overview
 
-Dojima provides a complete DEX ecosystem with:
+Dojima Mobile provides a complete trading ecosystem with:
 
-- **On-chain Order Book**: Gas-optimized limit order matching engine
-- **Real-time Indexing**: Ponder-based event indexing with GraphQL API
-- **Modern Trading UI**: React-based interface with order book visualization
-- **WebSocket Integration**: Live updates for orders and trades
-- **Factory Pattern**: Modular deployment system for trading pairs
-- **Comprehensive Testing**: Full test coverage including E2E Playwright tests
+- **UnifiedCLOBV2 Contract**: Advanced order book with limit and market orders
+- **Gasless Trading**: Porto Protocol integration for sponsored transactions
+- **Mobile-First Design**: React Native app with Expo SDK 51
+- **Market Orders**: Instant execution with slippage protection
+- **Real-time Updates**: WebSocket integration for live order book
+- **Comprehensive Testing**: Full test coverage with Porto relay integration
 
 ## Key Features
 
 ### Technical Stack
-- **Smart Contracts**: Solidity with Foundry framework
-- **Frontend**: Next.js 15, TypeScript, Tailwind CSS v4
-- **Indexing**: Ponder v0.11 with GraphQL API
-- **Real-time**: RISE WebSocket subscriptions
-- **Testing**: Foundry tests + Playwright E2E tests
+- **Smart Contracts**: Solidity 0.8.23+ with Foundry framework
+- **Mobile App**: React Native with Expo SDK 51
+- **Porto Protocol**: EIP-7702 delegation for gasless transactions  
+- **Blockchain**: RISE Testnet (Chain ID: 11155931)
+- **Testing**: Comprehensive test suite with market order support
 
 ### Trading Features
-- Limit orders with price-time priority
-- Order book depth visualization
-- Real-time order matching
-- Deposit/withdraw interface
-- Balance management
+- **Limit Orders**: Price-time priority matching
+- **Market Orders**: Instant execution with slippage protection (NEW!)
+- **Gasless Trading**: All fees sponsored via Porto relay
+- **One-Click Setup**: Account delegation and token minting
+- **Real-time Updates**: Live order book and balance updates
 
-### Developer Experience
-- Auto-generated contract types
-- React hooks for contract interactions
-- GraphQL client with caching
-- Hot module replacement
-- Comprehensive test coverage
+### Porto Protocol Integration
+- **Account Delegation**: EIP-7702 smart account functionality
+- **Sponsored Transactions**: No gas fees for users
+- **Session Keys**: Secure key management with Expo SecureStore
+- **Intent-Based Execution**: Batched operations for efficiency
 
 ## Architecture
 
 ```
-Dojima CLOB System
-├── Core Contracts
-│   ├── OrderBook.sol           # Abstract base order book
-│   ├── CLOBRegistry.sol        # Global registry and volume tracking
-│   ├── CLOBFactoryModular.sol  # Modular factory system
-│   └── SpotFactory.sol         # Spot pair deployment
+Dojima Mobile System
+├── Smart Contracts
+│   ├── UnifiedCLOBV2.sol        # Order book with market orders
+│   ├── MintableERC20.sol        # Test tokens with one-time mint
+│   └── Porto Integration        # EIP-7702 delegation
 │
-├── Trading Features
-│   ├── EnhancedSpotBook.sol    # Production spot trading
-│   ├── SpotBook.sol            # Basic spot implementation
-│   ├── PerpBook.sol            # Perpetual futures (example)
-│   └── LeverageTrading.sol     # Margin trading system
+├── Mobile Application
+│   ├── screens/                 # Trading, Portfolio, Markets
+│   │   ├── SetupScreen         # Onboarding with delegation
+│   │   ├── TradingScreen       # Order placement & deposits
+│   │   └── PortfolioScreen    # Balance management
+│   ├── hooks/                   # Custom React hooks
+│   │   ├── useCLOBContract    # Trading operations
+│   │   ├── usePortfolio       # Balance tracking
+│   │   └── useRelayer         # Porto relay integration
+│   └── lib/porto/              # Gasless transaction logic
 │
-├── Fee System
-│   ├── GlobalFeeHook.sol       # Dynamic fee calculations (CREATE2)
-│   ├── FeeDistributor.sol      # Revenue distribution
-│   └── LiquidityMiningHook.sol # LP incentives
+├── Porto Relay Integration
+│   ├── wallet_prepareCalls      # Intent preparation
+│   ├── wallet_sendPreparedCalls # Transaction submission
+│   ├── wallet_upgradeAccount    # Account delegation
+│   └── wallet_getCallsStatus   # Transaction monitoring
 │
-└── Indexing & API
-    ├── Ponder Indexer          # Real-time event processing
-    ├── GraphQL API             # Query interface
-    └── WebSocket API           # Live order book updates
+└── Testing Suite
+    ├── test-unified-clob-v2.js  # Contract integration
+    ├── test-market-orders.js    # Market order testing
+    └── test-complete-flow.js   # End-to-end validation
 ```
 
 ## Quick Start
@@ -68,57 +72,80 @@ Dojima CLOB System
 ### Prerequisites
 - Node.js 18+
 - Foundry (for smart contract development)
+- Expo CLI (for mobile development)
 - Git
 
 ### Installation
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/dojima.git
-cd dojima
+git clone https://github.com/yourusername/dojima-mobile.git
+cd dojima-mobile
 
 # Install dependencies
 npm install
 
 # Install contract dependencies
-cd contracts && forge install
+cd contracts && forge install && cd ..
+
+# Install mobile dependencies
+cd mobile && npm install && cd ..
+
+# Install test dependencies
+cd tests && npm install && cd ..
 ```
 
-### Running the Application
+### Running the Mobile App
 
-1. **Start the Indexer** (required for GraphQL API):
 ```bash
-cd indexing
-npm run dev
+# Start the mobile app
+cd mobile
+npm start
+
+# For iOS (Mac only)
+npm run ios
+
+# For Android
+npm run android
+
+# For web
+npm run web
 ```
 
-2. **Start the Frontend**:
+### Deploy Contracts (Optional)
+
 ```bash
-cd frontend
-npm run dev
+cd contracts
+forge script script/DeployUnifiedCLOBV2.s.sol --rpc-url https://testnet.riselabs.xyz --broadcast
 ```
 
-3. **Deploy Contracts** (optional - testnet contracts already deployed):
-```bash
-npm run deploy-and-sync -- -s DeployModularCLOB
-```
+## Network Configuration
 
-Visit http://localhost:3001 to access the trading interface.
+### RISE Testnet Parameters
+- **Network Name**: RISE Testnet
+- **Chain ID**: 11155931
+- **Currency Symbol**: ETH
+- **Block Explorer**: https://explorer.testnet.riselabs.xyz
 
-## Contract Addresses (RISE Testnet)
+### RPC Endpoints
+- **HTTPS RPC**: https://testnet.riselabs.xyz
+- **WebSocket**: wss://testnet.riselabs.xyz/ws
+- **Porto Relay**: https://rise-testnet-porto.fly.dev
 
-### Core Infrastructure (Updated 2025-07-19)
-- **CLOBRegistry**: `0x2188C521c03DCcFf0C8b55B2A55D29B106F548b1`
-- **CLOBFactoryModular**: `0x005ba978527eE83f722Cc1822D3F87d8dBcb6B55`
-- **SpotFactory**: `0x2661816e0e8a210084817a87ae5c9A2D7638004C`
-- **GlobalFeeHook**: `0x7EBE5AA248F62837aeb5315FeB95A055ed930A24`
-- **FeeDistributor**: `0xC0A738e222C78d1F3658Cff6C534715DBC17fa5F`
+## Contract Addresses (Latest Deployment)
 
-### Live Trading Pairs
-- **WETH-USDC**: `0xC9E995bD6D53833D2ec9f6d83d87737d3dCf9222` (EnhancedSpotBook)
+### Core Contracts
+- **UnifiedCLOBV2**: `0x4DA4bbB5CD9cdCE0f632e414a00FA1fe2c34f50C`
+- **Porto Delegation Proxy**: `0x894C14A66508D221A219Dd0064b4A6718d0AAA52`
+- **Porto Orchestrator**: `0xa4D0537eEAB875C9a880580f38862C1f946bFc1c`
 
-### Test Tokens
-- **WETH (Mock)**: `0x0da0E0657016533CB318570d519c62670A377748`
-- **USDC (Mock)**: `0x71a1A92DEF5A4258788212c0Febb936041b5F6c1`
+### Test Tokens (MintableERC20)
+- **USDC**: `0xC23b6B892c947746984474d52BBDF4ADd25717B3` (6 decimals)
+- **WETH**: `0xd2B8ad86Ba1bF5D31d95Fcd3edE7dA0D4fEA89e4` (18 decimals)
+- **WBTC**: `0x7C4B1b2953Fd3bB0A4aC07da70b0839d1D09c2cA` (8 decimals)
+
+### Trading Books
+- **Book 1**: WETH/USDC
+- **Book 2**: WBTC/USDC
 
 ## Development
 
@@ -128,47 +155,52 @@ Visit http://localhost:3001 to access the trading interface.
 cd contracts
 forge test                # Run contract tests
 forge test --gas-report   # Gas optimization report
+forge build               # Compile contracts
 
-# Frontend
-cd frontend
-npm run dev               # Start development server (port 3001)
-npm run build             # Production build
-npm run lint              # Code linting
-npm run type-check        # TypeScript validation
-npm run test:e2e          # Run Playwright tests
+# Mobile App
+cd mobile
+npm start                 # Start Expo dev server
+npm run ios              # Run on iOS simulator
+npm run android          # Run on Android emulator
+npm run web              # Run in web browser
+npm run build            # Build for production
 
-# Indexing
-cd indexing
-npm run dev               # Start Ponder indexer (port 42069)
-npm run codegen           # Generate GraphQL types
-
-# Full Stack
-npm run dev               # Start all services
-npm run deploy-and-sync   # Deploy contracts & sync
+# Testing
+cd tests
+node test-unified-clob-v2.js    # Test order placement
+node test-market-orders.js       # Test market orders
+node test-complete-flow.js       # Full integration test
+node test-mobile-flow.js         # Test mobile app flow
 ```
 
 ### Project Structure
 ```
-dojima/
+dojima-mobile/
 ├── contracts/            # Smart contracts (Foundry)
 │   ├── src/             # Contract implementations
+│   │   ├── UnifiedCLOBV2.sol     # Main CLOB contract
+│   │   └── tokens/               # Test token contracts
 │   ├── script/          # Deployment scripts
 │   └── test/            # Contract tests
 │
-├── frontend/            # Trading interface (Next.js)
-│   ├── src/app/         # App routes
-│   ├── src/components/  # UI components
-│   └── src/hooks/       # Contract interactions
+├── mobile/              # React Native app (Expo)
+│   ├── src/
+│   │   ├── screens/     # App screens
+│   │   ├── components/  # UI components
+│   │   ├── hooks/       # Custom React hooks
+│   │   ├── lib/porto/   # Porto integration
+│   │   └── config/      # App configuration
+│   └── app.json         # Expo configuration
 │
-├── indexing/            # Event indexer (Ponder)
-│   ├── src/             # Event handlers
-│   ├── ponder.schema.ts # GraphQL schema
-│   └── ponder.config.ts # Indexer configuration
+├── tests/               # Integration tests
+│   ├── lib/             # Test utilities
+│   ├── abis/            # Contract ABIs
+│   └── test-*.js        # Test scripts
 │
-├── tests/               # E2E tests (Playwright)
-│   └── *.spec.ts        # Test specifications
+├── external/            # External dependencies
+│   └── porto-relay/     # Porto relay reference
 │
-└── open-clob/           # Core CLOB library reference
+└── TODOLIST.md         # Development roadmap
 ```
 
 ## Testing

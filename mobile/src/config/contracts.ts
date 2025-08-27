@@ -4,29 +4,29 @@ import { MintableERC20ABI } from './abis';
 // Chain ID: 11155931
 
 export const CONTRACTS = {
-  // UnifiedCLOBV2 Contract (LATEST deployment with separate match function)
+  // UnifiedCLOBV2 Contract (LATEST deployment with market orders support)
   UnifiedCLOB: {
-    address: '0x92025983Ab5641378893C3932A1a43e214e7446D' as const,
+    address: '0x4DA4bbB5CD9cdCE0f632e414a00FA1fe2c34f50C' as const,
     abi: UnifiedCLOBV2ABI,
   },
   
   // Tokens (LATEST deployment with correct decimals)
   USDC: {
-    address: '0xaE3A504B9Fe27cf2ff3Ed3e36bE037AD36a1a48a' as const,
+    address: '0xC23b6B892c947746984474d52BBDF4ADd25717B3' as const,
     decimals: 6,
     symbol: 'USDC',
     name: 'USD Coin',
     abi: MintableERC20ABI,
   },
   WETH: {
-    address: '0x3Af2aed9FFA29b2a0e387a2Fb45a540A66f4D2b4' as const,
+    address: '0xd2B8ad86Ba1bF5D31d95Fcd3edE7dA0D4fEA89e4' as const,
     decimals: 18,
     symbol: 'WETH',
     name: 'Wrapped Ether',
     abi: MintableERC20ABI,
   },
   WBTC: {
-    address: '0x30301403f92915c8731880eF595c20C8C6059369' as const,
+    address: '0x7C4B1b2953Fd3bB0A4aC07da70b0839d1d09c2cA' as const,
     decimals: 8,
     symbol: 'WBTC',
     name: 'Wrapped Bitcoin',

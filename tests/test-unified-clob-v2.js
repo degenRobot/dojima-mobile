@@ -16,13 +16,13 @@ const relayConfig = JSON.parse(fs.readFileSync(path.join(__dirname, '../relay.js
 const CLOBV2_ABI = JSON.parse(fs.readFileSync(path.join(__dirname, 'abis/UnifiedCLOBV2.json'), 'utf8'));
 const ERC20_ABI = JSON.parse(fs.readFileSync(path.join(__dirname, 'abis/MintableERC20.json'), 'utf8'));
 
-// Contract addresses (from latest deployment)
+// Contract addresses (updated deployment with market orders)
 const CONFIG = {
-    clob: '0x92025983Ab5641378893C3932A1a43e214e7446D',
+    clob: '0x4DA4bbB5CD9cdCE0f632e414a00FA1fe2c34f50C',
     tokens: {
-        USDC: '0xaE3A504B9Fe27cf2ff3Ed3e36bE037AD36a1a48a',
-        WETH: '0x3Af2aed9FFA29b2a0e387a2Fb45a540A66f4D2b4',
-        WBTC: '0x30301403f92915c8731880eF595c20C8C6059369'
+        USDC: '0xC23b6B892c947746984474d52BBDF4ADd25717B3',
+        WETH: '0xd2B8ad86Ba1bF5D31d95Fcd3edE7dA0D4fEA89e4',
+        WBTC: '0x7C4B1b2953Fd3bB0A4aC07da70b0839d1d09c2cA'
     },
     books: {
         WETH_USDC: 1,

@@ -254,6 +254,60 @@ export function useCLOBContract() {
   }, [executeTransaction, userAddress]);
 
   /**
+   * Place a market order on the CLOB with slippage protection
+   */
+  const placeMarketOrder = useCallback(async (
+    bookId: number,
+    isBuy: boolean,
+    amount: string,
+    slippageBps: number = 100 // Default 1% slippage (100 basis points)
+  ): Promise<TransactionResult> => {
+    if (!userAddress) {
+      return { success: false, error: 'No wallet address' };
+    }
+
+    try {
+      setLoading(true);
+      
+      // Get book info
+      const book = TRADING_BOOKS.find(b => b.id === bookId);
+      if (!book) {
+        return { success: false, error: 'Invalid book ID' };
+      }
+
+      // Amount is always normalized to 18 decimals for the contract
+      const amountBigInt = parseUnits(amount, 18);
+      
+      const data = encodeFunctionData({
+        abi: UnifiedCLOBV2ABI,
+        functionName: 'placeMarketOrder',
+        args: [
+          bookId,
+          isBuy ? 0 : 1, // 0 = buy, 1 = sell
+          amountBigInt,
+          slippageBps, // Slippage in basis points (100 = 1%)
+        ],
+      });
+
+      console.log(`Placing market ${isBuy ? 'buy' : 'sell'} order: ${amount} with ${slippageBps/100}% slippage on book ${bookId}...`);
+      const result = await executeTransaction(CONTRACTS.UnifiedCLOB.address, data);
+      
+      return { 
+        success: true, 
+        bundleId: result.bundleId 
+      };
+    } catch (error: any) {
+      console.error('Market order failed:', error);
+      return { 
+        success: false, 
+        error: error.message 
+      };
+    } finally {
+      setLoading(false);
+    }
+  }, [executeTransaction, userAddress]);
+
+  /**
    * Cancel an order
    */
   const cancelOrder = useCallback(async (
@@ -348,6 +402,7 @@ export function useCLOBContract() {
     
     // Trading operations
     placeOrder,
+    placeMarketOrder,
     cancelOrder,
     matchOrders,
     

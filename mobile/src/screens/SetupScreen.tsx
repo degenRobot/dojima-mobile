@@ -29,7 +29,8 @@ export function SetupScreen() {
     userAddress, 
     delegationStatus,
     setupAccountDelegation,
-    checkDelegationStatus
+    checkDelegationStatus,
+    markSetupComplete
   } = usePorto();
   
   const { mintTokens } = useCLOBContract();
@@ -43,13 +44,8 @@ export function SetupScreen() {
     mintWBTC: 'pending',
   });
 
-  // Check if already setup
-  useEffect(() => {
-    if (delegationStatus === 'ready') {
-      logInfo('SetupScreen', 'User already has delegation setup');
-      setCurrentStep('complete');
-    }
-  }, [delegationStatus]);
+  // Don't automatically skip - let user go through proper flow
+  // This prevents jumping around during setup
 
   const handleStart = async () => {
     try {
@@ -73,11 +69,28 @@ export function SetupScreen() {
       setCurrentStep('minting');
       
       // Step 2: Mint tokens (one-time mint)
-      await mintAllTokens();
+      // The delegation is setup on first transaction, which will be the USDC mint
+      const mintSuccess = await mintAllTokens();
       
-      // Setup complete!
-      setCurrentStep('complete');
-      logInfo('SetupScreen', 'Account setup complete!');
+      if (mintSuccess) {
+        // Setup complete!
+        setCurrentStep('complete');
+        logInfo('SetupScreen', 'Account setup complete!');
+        
+        // Mark the entire setup flow as complete
+        // This will trigger navigation to the main app
+        setTimeout(() => {
+          markSetupComplete();
+        }, 2000); // Give user a moment to see the success screen
+      } else {
+        // Even if minting failed, delegation might be set up
+        logWarn('SetupScreen', 'Minting had errors but delegation may be setup');
+        setCurrentStep('complete');
+        // Still mark as complete but with warning
+        setTimeout(() => {
+          markSetupComplete();
+        }, 3000);
+      }
       
     } catch (error: any) {
       logError('SetupScreen', 'Setup failed', { error: error.message });
@@ -109,20 +122,24 @@ export function SetupScreen() {
 
   const mintAllTokens = async () => {
     logInfo('SetupScreen', 'Starting token minting');
+    let hasErrors = false;
     
-    // Mint USDC
+    // Mint USDC - This is the most important one
     try {
       setStepStatus(prev => ({ ...prev, mintUSDC: 'loading' }));
       const usdcResult = await mintTokens('USDC', '10000');
       if (usdcResult.success) {
         setStepStatus(prev => ({ ...prev, mintUSDC: 'done' }));
-        logInfo('SetupScreen', 'USDC minted successfully');
+        logInfo('SetupScreen', 'USDC minted successfully', { bundleId: usdcResult.bundleId });
       } else {
         setStepStatus(prev => ({ ...prev, mintUSDC: 'error' }));
+        hasErrors = true;
+        logError('SetupScreen', 'USDC mint failed', { error: usdcResult.error });
       }
-    } catch (error) {
-      logError('SetupScreen', 'USDC minting failed', { error });
+    } catch (error: any) {
+      logError('SetupScreen', 'USDC minting failed', { error: error.message });
       setStepStatus(prev => ({ ...prev, mintUSDC: 'error' }));
+      hasErrors = true;
     }
 
     // Mint WETH
@@ -131,13 +148,16 @@ export function SetupScreen() {
       const wethResult = await mintTokens('WETH', '10');
       if (wethResult.success) {
         setStepStatus(prev => ({ ...prev, mintWETH: 'done' }));
-        logInfo('SetupScreen', 'WETH minted successfully');
+        logInfo('SetupScreen', 'WETH minted successfully', { bundleId: wethResult.bundleId });
       } else {
         setStepStatus(prev => ({ ...prev, mintWETH: 'error' }));
+        hasErrors = true;
+        logError('SetupScreen', 'WETH mint failed', { error: wethResult.error });
       }
-    } catch (error) {
-      logError('SetupScreen', 'WETH minting failed', { error });
+    } catch (error: any) {
+      logError('SetupScreen', 'WETH minting failed', { error: error.message });
       setStepStatus(prev => ({ ...prev, mintWETH: 'error' }));
+      hasErrors = true;
     }
 
     // Mint WBTC
@@ -146,18 +166,25 @@ export function SetupScreen() {
       const wbtcResult = await mintTokens('WBTC', '1');
       if (wbtcResult.success) {
         setStepStatus(prev => ({ ...prev, mintWBTC: 'done' }));
-        logInfo('SetupScreen', 'WBTC minted successfully');
+        logInfo('SetupScreen', 'WBTC minted successfully', { bundleId: wbtcResult.bundleId });
       } else {
         setStepStatus(prev => ({ ...prev, mintWBTC: 'error' }));
+        hasErrors = true;
+        logError('SetupScreen', 'WBTC mint failed', { error: wbtcResult.error });
       }
-    } catch (error) {
-      logError('SetupScreen', 'WBTC minting failed', { error });
+    } catch (error: any) {
+      logError('SetupScreen', 'WBTC minting failed', { error: error.message });
       setStepStatus(prev => ({ ...prev, mintWBTC: 'error' }));
+      hasErrors = true;
     }
+    
+    // Return whether minting was successful (at least USDC should work)
+    return !hasErrors || stepStatus.mintUSDC === 'done';
   };
 
   const handleRefreshStatus = async () => {
-    await checkDelegationStatus();
+    // Mark setup as complete and navigate to main app
+    markSetupComplete();
   };
 
   const renderStepIndicator = (status: 'pending' | 'loading' | 'done' | 'error') => {

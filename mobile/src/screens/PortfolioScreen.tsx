@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -13,89 +13,37 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePorto } from '../providers/SimplePortoProvider';
-import { useCLOBContract, HARDCODED_PRICES } from '../hooks/useCLOBContract';
-import { publicClient } from '../config/viemClient';
-import { CONTRACTS } from '../config/contracts';
-import { MintableERC20ABI, UnifiedCLOBV2ABI } from '../config/abis';
-import { formatUnits } from 'viem';
+import { useCLOBContract } from '../hooks/useCLOBContract';
+import { usePortfolio } from '../hooks/usePortfolio';
 import { COLORS } from '../config/constants';
-
-interface TokenBalance {
-  symbol: 'USDC' | 'WETH' | 'WBTC';
-  walletBalance: string;
-  clobBalance: string;
-  usdValue: number;
-}
 
 export function PortfolioScreen() {
   const { userAddress, delegationStatus } = usePorto();
   const { withdrawFromCLOB, loading } = useCLOBContract();
+  const { 
+    portfolio, 
+    loading: loadingPortfolio, 
+    refreshing: portfolioRefreshing, 
+    handleRefresh,
+    error,
+    getTokenInfo,
+    hasBalance 
+  } = usePortfolio();
+  
   const [activeTab, setActiveTab] = useState<'balances' | 'positions' | 'history'>('balances');
-  const [refreshing, setRefreshing] = useState(false);
-  const [balances, setBalances] = useState<TokenBalance[]>([]);
-  const [loadingBalances, setLoadingBalances] = useState(true);
   const [withdrawModalVisible, setWithdrawModalVisible] = useState(false);
   const [withdrawToken, setWithdrawToken] = useState<'USDC' | 'WETH' | 'WBTC'>('USDC');
   const [withdrawAmount, setWithdrawAmount] = useState('');
 
-  const fetchBalances = async () => {
-    if (!userAddress) return;
-    
-    setLoadingBalances(true);
-    try {
-      const tokens: ('USDC' | 'WETH' | 'WBTC')[] = ['USDC', 'WETH', 'WBTC'];
-      const newBalances: TokenBalance[] = [];
-      
-      for (const symbol of tokens) {
-        const token = CONTRACTS[symbol];
-        
-        // Fetch wallet balance
-        const walletBalance = await publicClient.readContract({
-          address: token.address,
-          abi: MintableERC20ABI,
-          functionName: 'balanceOf',
-          args: [userAddress],
-        }) as bigint;
-        
-        // Fetch CLOB balance
-        const clobBalance = await publicClient.readContract({
-          address: CONTRACTS.UnifiedCLOB.address,
-          abi: UnifiedCLOBV2ABI,
-          functionName: 'getBalance',
-          args: [userAddress, token.address],
-        }) as bigint;
-        
-        const walletBalanceFormatted = formatUnits(walletBalance, token.decimals);
-        const clobBalanceFormatted = formatUnits(clobBalance, token.decimals);
-        
-        const totalBalance = parseFloat(walletBalanceFormatted) + parseFloat(clobBalanceFormatted);
-        const usdValue = totalBalance * HARDCODED_PRICES[symbol];
-        
-        newBalances.push({
-          symbol,
-          walletBalance: walletBalanceFormatted,
-          clobBalance: clobBalanceFormatted,
-          usdValue,
-        });
-      }
-      
-      setBalances(newBalances);
-    } catch (error) {
-      console.error('Failed to fetch balances:', error);
-    } finally {
-      setLoadingBalances(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchBalances();
-  }, [userAddress]);
+  // Use portfolio hook data
+  const balances = portfolio?.balances || [];
+  const totalValue = portfolio?.totalValueUSD || 0;
+  const loadingBalances = loadingPortfolio;
+  const refreshing = portfolioRefreshing;
 
   const onRefresh = React.useCallback(async () => {
-    setRefreshing(true);
-    await fetchBalances();
-    setRefreshing(false);
-  }, [userAddress]);
+    await handleRefresh();
+  }, [handleRefresh]);
 
   const handleWithdraw = async () => {
     if (!withdrawAmount || parseFloat(withdrawAmount) <= 0) {
@@ -103,9 +51,11 @@ export function PortfolioScreen() {
       return;
     }
     
-    const balance = balances.find(b => b.symbol === withdrawToken);
-    if (balance && parseFloat(withdrawAmount) > parseFloat(balance.clobBalance)) {
-      Alert.alert('Insufficient Balance', `You only have ${balance.clobBalance} ${withdrawToken} in CLOB`);
+    const tokenInfo = getTokenInfo(withdrawToken);
+    const availableBalance = tokenInfo?.clobBalance || '0';
+    
+    if (parseFloat(withdrawAmount) > parseFloat(availableBalance)) {
+      Alert.alert('Insufficient Balance', `You only have ${availableBalance} ${withdrawToken} available in CLOB`);
       return;
     }
     
@@ -114,14 +64,11 @@ export function PortfolioScreen() {
       Alert.alert('Success', `Withdrew ${withdrawAmount} ${withdrawToken} from CLOB`);
       setWithdrawModalVisible(false);
       setWithdrawAmount('');
-      await fetchBalances();
+      await handleRefresh();
     } else {
       Alert.alert('Error', result.error || 'Withdrawal failed');
     }
   };
-
-  // Calculate total portfolio value
-  const totalValue = balances.reduce((sum, b) => sum + b.usdValue, 0);
   
   // Mock day change for MVP
   const dayChange = totalValue * 0.0195;
@@ -216,32 +163,53 @@ export function PortfolioScreen() {
               
               {loadingBalances ? (
                 <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 40 }} />
+              ) : error ? (
+                <View style={styles.errorContainer}>
+                  <Text style={styles.errorText}>⚠️ Failed to load balances</Text>
+                  <TouchableOpacity onPress={handleRefresh} style={styles.retryButton}>
+                    <Text style={styles.retryText}>Retry</Text>
+                  </TouchableOpacity>
+                </View>
               ) : (
-                balances.map((balance) => (
-                  <View key={balance.symbol} style={styles.balanceCard}>
-                    <View style={styles.balanceHeader}>
-                      <Text style={styles.tokenSymbol}>{balance.symbol}</Text>
-                      <Text style={styles.usdValue}>${balance.usdValue.toFixed(2)}</Text>
+                ['USDC', 'WETH', 'WBTC'].map((symbol) => {
+                  const tokenInfo = getTokenInfo(symbol);
+                  if (!tokenInfo) return null;
+                  
+                  return (
+                    <View key={symbol} style={styles.balanceCard}>
+                      <View style={styles.balanceHeader}>
+                        <Text style={styles.tokenSymbol}>{symbol}</Text>
+                        <Text style={styles.usdValue}>${tokenInfo.totalValue.toFixed(2)}</Text>
+                      </View>
+                      
+                      <View style={styles.balanceRow}>
+                        <Text style={styles.balanceLabel}>Wallet:</Text>
+                        <Text style={styles.balanceValue}>{parseFloat(tokenInfo.walletBalance).toFixed(4)}</Text>
+                      </View>
+                      
+                      <View style={styles.balanceRow}>
+                        <Text style={styles.balanceLabel}>CLOB Available:</Text>
+                        <Text style={styles.balanceValue}>{parseFloat(tokenInfo.clobBalance).toFixed(4)}</Text>
+                      </View>
+                      
+                      {parseFloat(tokenInfo.clobLocked) > 0 && (
+                        <View style={styles.balanceRow}>
+                          <Text style={styles.balanceLabel}>CLOB Locked:</Text>
+                          <Text style={[styles.balanceValue, styles.lockedValue]}>
+                            {parseFloat(tokenInfo.clobLocked).toFixed(4)}
+                          </Text>
+                        </View>
+                      )}
+                      
+                      <View style={[styles.balanceRow, styles.totalRow]}>
+                        <Text style={styles.balanceLabel}>Total:</Text>
+                        <Text style={styles.balanceValue}>
+                          {(parseFloat(tokenInfo.walletBalance) + parseFloat(tokenInfo.clobBalance) + parseFloat(tokenInfo.clobLocked)).toFixed(4)}
+                        </Text>
+                      </View>
                     </View>
-                    
-                    <View style={styles.balanceRow}>
-                      <Text style={styles.balanceLabel}>Wallet:</Text>
-                      <Text style={styles.balanceValue}>{parseFloat(balance.walletBalance).toFixed(4)}</Text>
-                    </View>
-                    
-                    <View style={styles.balanceRow}>
-                      <Text style={styles.balanceLabel}>CLOB:</Text>
-                      <Text style={styles.balanceValue}>{parseFloat(balance.clobBalance).toFixed(4)}</Text>
-                    </View>
-                    
-                    <View style={[styles.balanceRow, styles.totalRow]}>
-                      <Text style={styles.balanceLabel}>Total:</Text>
-                      <Text style={styles.balanceValue}>
-                        {(parseFloat(balance.walletBalance) + parseFloat(balance.clobBalance)).toFixed(4)}
-                      </Text>
-                    </View>
-                  </View>
-                ))
+                  );
+                })
               )}
             </View>
           )}
@@ -275,7 +243,8 @@ export function PortfolioScreen() {
             
             <View style={styles.tokenSelector}>
               {(['USDC', 'WETH', 'WBTC'] as const).map(token => {
-                const balance = balances.find(b => b.symbol === token);
+                const tokenInfo = getTokenInfo(token);
+                const availableBalance = tokenInfo?.clobBalance || '0';
                 return (
                   <TouchableOpacity
                     key={token}
@@ -295,7 +264,7 @@ export function PortfolioScreen() {
                       styles.tokenBalance,
                       withdrawToken === token && styles.tokenBalanceActive
                     ]}>
-                      {balance ? parseFloat(balance.clobBalance).toFixed(2) : '0'}
+                      {parseFloat(availableBalance).toFixed(2)}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -601,5 +570,29 @@ const styles = StyleSheet.create({
     color: COLORS.background,
     fontSize: 16,
     fontWeight: '600',
+  },
+  errorContainer: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  errorText: {
+    fontSize: 16,
+    color: COLORS.error,
+    marginBottom: 12,
+  },
+  retryButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: COLORS.primary,
+    borderRadius: 6,
+  },
+  retryText: {
+    color: COLORS.background,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  lockedValue: {
+    color: COLORS.warning || COLORS.textSecondary,
+    fontStyle: 'italic',
   },
 });

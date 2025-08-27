@@ -26,13 +26,14 @@ import { logDebug, logInfo, logWarn, logError } from '../utils/logger';
 export function TradingScreen() {
   const { isInitialized, delegationStatus, isConnected: portoConnected } = usePorto();
   const { isConnected: wsConnected } = useWebSocket();
-  const { depositToCLOB, loading } = useCLOBContract();
+  const { depositToCLOB, withdrawFromCLOB, loading } = useCLOBContract();
   const [selectedPair, setSelectedPair] = useState(TRADING_BOOKS[0]);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'book' | 'trades'>('book');
   const [depositModalVisible, setDepositModalVisible] = useState(false);
-  const [depositToken, setDepositToken] = useState<'USDC' | 'WETH' | 'WBTC'>('USDC');
-  const [depositAmount, setDepositAmount] = useState('');
+  const [withdrawModalVisible, setWithdrawModalVisible] = useState(false);
+  const [selectedToken, setSelectedToken] = useState<'USDC' | 'WETH' | 'WBTC'>('USDC');
+  const [amount, setAmount] = useState('');
   
   // Log state on mount and changes
   useEffect(() => {
@@ -60,23 +61,44 @@ export function TradingScreen() {
   }, []);
 
   const handleDeposit = async () => {
-    if (!depositAmount || parseFloat(depositAmount) <= 0) {
-      logWarn('TradingScreen', 'Invalid deposit amount', { amount: depositAmount });
+    if (!amount || parseFloat(amount) <= 0) {
+      logWarn('TradingScreen', 'Invalid deposit amount', { amount });
       Alert.alert('Invalid Amount', 'Please enter a valid amount');
       return;
     }
     
-    logInfo('TradingScreen', 'Starting deposit', { token: depositToken, amount: depositAmount });
-    const result = await depositToCLOB(depositToken, depositAmount);
+    logInfo('TradingScreen', 'Starting deposit', { token: selectedToken, amount });
+    const result = await depositToCLOB(selectedToken, amount);
     
     if (result.success) {
-      logInfo('TradingScreen', 'Deposit successful', { token: depositToken, amount: depositAmount, bundleId: result.bundleId });
-      Alert.alert('Success', `Deposited ${depositAmount} ${depositToken} to CLOB`);
+      logInfo('TradingScreen', 'Deposit successful', { token: selectedToken, amount, bundleId: result.bundleId });
+      Alert.alert('Success', `Deposited ${amount} ${selectedToken} to CLOB`);
       setDepositModalVisible(false);
-      setDepositAmount('');
+      setAmount('');
     } else {
       logError('TradingScreen', 'Deposit failed', { error: result.error });
       Alert.alert('Error', result.error || 'Deposit failed');
+    }
+  };
+  
+  const handleWithdraw = async () => {
+    if (!amount || parseFloat(amount) <= 0) {
+      logWarn('TradingScreen', 'Invalid withdraw amount', { amount });
+      Alert.alert('Invalid Amount', 'Please enter a valid amount');
+      return;
+    }
+    
+    logInfo('TradingScreen', 'Starting withdrawal', { token: selectedToken, amount });
+    const result = await withdrawFromCLOB(selectedToken, amount);
+    
+    if (result.success) {
+      logInfo('TradingScreen', 'Withdrawal successful', { token: selectedToken, amount, bundleId: result.bundleId });
+      Alert.alert('Success', `Withdrew ${amount} ${selectedToken} from CLOB`);
+      setWithdrawModalVisible(false);
+      setAmount('');
+    } else {
+      logError('TradingScreen', 'Withdrawal failed', { error: result.error });
+      Alert.alert('Error', result.error || 'Withdrawal failed');
     }
   };
 
@@ -101,14 +123,22 @@ export function TradingScreen() {
 
       {/* Action Bar */}
       <View style={styles.actionBar}>
-        <TouchableOpacity 
-          style={styles.depositButton}
-          onPress={() => setDepositModalVisible(true)}
-        >
-          <Text style={styles.depositButtonText}>💰 Deposit to CLOB</Text>
-        </TouchableOpacity>
+        <View style={styles.actionButtons}>
+          <TouchableOpacity 
+            style={[styles.actionButton, styles.depositButton]}
+            onPress={() => setDepositModalVisible(true)}
+          >
+            <Text style={styles.actionButtonText}>⬇️ Deposit</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.actionButton, styles.withdrawButton]}
+            onPress={() => setWithdrawModalVisible(true)}
+          >
+            <Text style={styles.actionButtonText}>⬆️ Withdraw</Text>
+          </TouchableOpacity>
+        </View>
         <Text style={styles.statusInfo}>
-          {delegationStatus === 'ready' ? '✅ Gasless Ready' : '⏳ Setting up...'}
+          {delegationStatus === 'ready' ? '✅ Ready' : '⏳ Setting up...'}
         </Text>
       </View>
 
@@ -174,13 +204,13 @@ export function TradingScreen() {
                   key={token}
                   style={[
                     styles.tokenButton,
-                    depositToken === token && styles.tokenButtonActive
+                    selectedToken === token && styles.tokenButtonActive
                   ]}
-                  onPress={() => setDepositToken(token)}
+                  onPress={() => setSelectedToken(token)}
                 >
                   <Text style={[
                     styles.tokenButtonText,
-                    depositToken === token && styles.tokenButtonTextActive
+                    selectedToken === token && styles.tokenButtonTextActive
                   ]}>
                     {token}
                   </Text>
@@ -190,10 +220,10 @@ export function TradingScreen() {
             
             <TextInput
               style={styles.input}
-              placeholder={`Amount (${depositToken})`}
+              placeholder={`Amount (${selectedToken})`}
               placeholderTextColor={COLORS.textSecondary}
-              value={depositAmount}
-              onChangeText={setDepositAmount}
+              value={amount}
+              onChangeText={setAmount}
               keyboardType="numeric"
             />
             
@@ -213,6 +243,69 @@ export function TradingScreen() {
                   <ActivityIndicator size="small" color={COLORS.background} />
                 ) : (
                   <Text style={styles.confirmButtonText}>Deposit</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      
+      {/* Withdraw Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={withdrawModalVisible}
+        onRequestClose={() => setWithdrawModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Withdraw from CLOB</Text>
+            
+            <View style={styles.tokenSelector}>
+              {(['USDC', 'WETH', 'WBTC'] as const).map(token => (
+                <TouchableOpacity
+                  key={token}
+                  style={[
+                    styles.tokenButton,
+                    selectedToken === token && styles.tokenButtonActive
+                  ]}
+                  onPress={() => setSelectedToken(token)}
+                >
+                  <Text style={[
+                    styles.tokenButtonText,
+                    selectedToken === token && styles.tokenButtonTextActive
+                  ]}>
+                    {token}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            
+            <TextInput
+              style={styles.input}
+              placeholder={`Amount (${selectedToken})`}
+              placeholderTextColor={COLORS.textSecondary}
+              value={amount}
+              onChangeText={setAmount}
+              keyboardType="numeric"
+            />
+            
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setWithdrawModalVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.confirmButton]}
+                onPress={handleWithdraw}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator size="small" color={COLORS.background} />
+                ) : (
+                  <Text style={styles.confirmButtonText}>Withdraw</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -333,14 +426,26 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
-  depositButton: {
-    backgroundColor: COLORS.primary,
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  actionButton: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 6,
+    borderWidth: 1,
   },
-  depositButtonText: {
-    color: COLORS.background,
+  depositButton: {
+    backgroundColor: COLORS.success + '20',
+    borderColor: COLORS.success,
+  },
+  withdrawButton: {
+    backgroundColor: COLORS.warning + '20',
+    borderColor: COLORS.warning,
+  },
+  actionButtonText: {
+    color: COLORS.text,
     fontSize: 14,
     fontWeight: '600',
   },

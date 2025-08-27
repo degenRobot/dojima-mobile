@@ -24,13 +24,14 @@ interface OrderFormProps {
 
 export function OrderForm({ pair }: OrderFormProps) {
   const { delegationStatus, isInitialized } = usePorto();
-  const { placeOrder, loading } = useCLOBContract();
+  const { placeOrder, placeMarketOrder, loading } = useCLOBContract();
   
   const [orderSide, setOrderSide] = useState<'buy' | 'sell'>('buy');
   const [orderType, setOrderType] = useState<'market' | 'limit'>('limit');
   const [price, setPrice] = useState('');
   const [amount, setAmount] = useState('');
   const [total, setTotal] = useState('0.00');
+  const [slippage, setSlippage] = useState('1'); // Default 1% slippage
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Log component mount
@@ -45,7 +46,7 @@ export function OrderForm({ pair }: OrderFormProps) {
   // Calculate total when price or amount changes
   React.useEffect(() => {
     try {
-      if (price && amount) {
+      if (orderType === 'limit' && price && amount) {
         const priceNum = parseFloat(price);
         const amountNum = parseFloat(amount);
         
@@ -55,6 +56,9 @@ export function OrderForm({ pair }: OrderFormProps) {
         } else {
           setTotal('0.00');
         }
+      } else if (orderType === 'market' && amount) {
+        // For market orders, show estimated total
+        setTotal('~' + amount + ' @ Market Price');
       } else {
         setTotal('0.00');
       }
@@ -62,7 +66,7 @@ export function OrderForm({ pair }: OrderFormProps) {
       logError('OrderForm', 'Failed to calculate total', { error, price, amount });
       setTotal('0.00');
     }
-  }, [price, amount]);
+  }, [price, amount, orderType]);
 
   const handleSubmit = async () => {
     try {
@@ -77,43 +81,69 @@ export function OrderForm({ pair }: OrderFormProps) {
         return;
       }
 
-      if (!price || !amount) {
-        Alert.alert('Invalid Order', 'Please enter price and amount');
+      if (!amount) {
+        Alert.alert('Invalid Order', 'Please enter an amount');
         return;
       }
 
-      const priceNum = parseFloat(price);
       const amountNum = parseFloat(amount);
-
-      if (isNaN(priceNum) || priceNum <= 0) {
-        Alert.alert('Invalid Price', 'Please enter a valid price');
-        return;
-      }
-
       if (isNaN(amountNum) || amountNum <= 0) {
         Alert.alert('Invalid Amount', 'Please enter a valid amount');
         return;
+      }
+
+      // For limit orders, also validate price
+      if (orderType === 'limit') {
+        if (!price) {
+          Alert.alert('Invalid Order', 'Please enter a price for limit orders');
+          return;
+        }
+        const priceNum = parseFloat(price);
+        if (isNaN(priceNum) || priceNum <= 0) {
+          Alert.alert('Invalid Price', 'Please enter a valid price');
+          return;
+        }
       }
 
       // Get book ID from pair
       const bookId = pair?.id || 1; // Default to book 1 (WETH/USDC)
 
       setIsSubmitting(true);
-      logInfo('OrderForm', 'Submitting order', {
-        bookId,
-        side: orderSide,
-        price: priceNum,
-        amount: amountNum,
-        total,
-      });
-
-      // Place order using the CLOB hook
-      const result = await placeOrder(
-        bookId,
-        orderSide === 'buy',
-        price,
-        amount
-      );
+      
+      let result;
+      if (orderType === 'market') {
+        // Place market order with slippage protection
+        const slippageBps = Math.round(parseFloat(slippage || '1') * 100); // Convert percentage to basis points
+        logInfo('OrderForm', 'Submitting market order', {
+          bookId,
+          side: orderSide,
+          amount: amountNum,
+          slippageBps,
+        });
+        
+        result = await placeMarketOrder(
+          bookId,
+          orderSide === 'buy',
+          amount,
+          slippageBps
+        );
+      } else {
+        // Place limit order
+        logInfo('OrderForm', 'Submitting limit order', {
+          bookId,
+          side: orderSide,
+          price: price,
+          amount: amountNum,
+          total,
+        });
+        
+        result = await placeOrder(
+          bookId,
+          orderSide === 'buy',
+          price,
+          amount
+        );
+      }
 
       if (result.success) {
         logInfo('OrderForm', 'Order placed successfully', { bundleId: result.bundleId });
@@ -150,7 +180,6 @@ export function OrderForm({ pair }: OrderFormProps) {
         <TouchableOpacity
           style={[styles.typeButton, orderType === 'market' && styles.typeButtonActive]}
           onPress={() => setOrderType('market')}
-          disabled // Market orders not implemented yet
         >
           <Text style={[styles.typeText, orderType === 'market' && styles.typeTextActive]}>
             Market
@@ -178,19 +207,35 @@ export function OrderForm({ pair }: OrderFormProps) {
         </TouchableOpacity>
       </View>
 
-      {/* Price Input */}
-      <View style={styles.inputContainer}>
-        <Text style={styles.inputLabel}>Price ({pair?.quote || 'USD'})</Text>
-        <TextInput
-          style={styles.input}
-          value={price}
-          onChangeText={setPrice}
-          placeholder="0.00"
-          placeholderTextColor={COLORS.textSecondary}
-          keyboardType="decimal-pad"
-          editable={orderType === 'limit'}
-        />
-      </View>
+      {/* Price Input (only for limit orders) */}
+      {orderType === 'limit' && (
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Price ({pair?.quote || 'USD'})</Text>
+          <TextInput
+            style={styles.input}
+            value={price}
+            onChangeText={setPrice}
+            placeholder="0.00"
+            placeholderTextColor={COLORS.textSecondary}
+            keyboardType="decimal-pad"
+          />
+        </View>
+      )}
+
+      {/* Slippage Input (only for market orders) */}
+      {orderType === 'market' && (
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Max Slippage (%)</Text>
+          <TextInput
+            style={styles.input}
+            value={slippage}
+            onChangeText={setSlippage}
+            placeholder="1.0"
+            placeholderTextColor={COLORS.textSecondary}
+            keyboardType="decimal-pad"
+          />
+        </View>
+      )}
 
       {/* Amount Input */}
       <View style={styles.inputContainer}>
@@ -264,6 +309,9 @@ const styles = StyleSheet.create({
   typeButtonActive: {
     backgroundColor: COLORS.primary,
   },
+  typeButtonDisabled: {
+    opacity: 0.5,
+  },
   typeText: {
     fontSize: 14,
     color: COLORS.textSecondary,
@@ -271,6 +319,9 @@ const styles = StyleSheet.create({
   },
   typeTextActive: {
     color: COLORS.background,
+  },
+  typeTextDisabled: {
+    color: COLORS.textMuted,
   },
   sideSelector: {
     flexDirection: 'row',

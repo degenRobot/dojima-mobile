@@ -21,7 +21,9 @@ interface PortoContextType {
   initializeAccount: () => Promise<void>;
   setupAccountDelegation: () => Promise<boolean>;
   executeTransaction: (to: Address, data: Hex, value?: Hex) => Promise<any>;
-  checkDelegationStatus: () => Promise<void>;
+  checkDelegationStatus: (silent?: boolean) => Promise<void>;
+  markSetupComplete: () => void;
+  resetWallet: () => Promise<void>;
 }
 
 const PortoContext = createContext<PortoContextType>({
@@ -34,6 +36,8 @@ const PortoContext = createContext<PortoContextType>({
   setupAccountDelegation: async () => false,
   executeTransaction: async () => {},
   checkDelegationStatus: async () => {},
+  markSetupComplete: () => {},
+  resetWallet: async () => {},
 });
 
 export const PortoProvider = ({ children }: { children: ReactNode }) => {
@@ -44,6 +48,9 @@ export const PortoProvider = ({ children }: { children: ReactNode }) => {
   
   // Use ref to always have current account value
   const accountRef = useRef<PrivateKeyAccount | null>(null);
+  
+  // Track if delegation setup is in progress to prevent duplicates
+  const delegationSetupInProgress = useRef(false);
   
   // Update ref when account changes
   useEffect(() => {
@@ -123,41 +130,69 @@ export const PortoProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   // Check if account is delegated
-  const checkDelegationStatus = useCallback(async () => {
+  const checkDelegationStatus = useCallback(async (silent = false) => {
     const currentAccount = accountRef.current;
     if (!currentAccount) {
-      logWarn('PortoProvider', 'No account available for delegation check');
+      if (!silent) {
+        logWarn('PortoProvider', 'No account available for delegation check');
+      }
       setDelegationStatus('none');
       setIsConnected(false);
       return;
     }
     
     try {
-      setDelegationStatus('checking');
-      logInfo('PortoProvider', 'Checking delegation status', { address: currentAccount.address });
+      // Check if we have stored that delegation was setup
+      const hasDelegated = await SecureStore.getItemAsync(STORAGE_KEYS.HAS_DELEGATED);
       
-      const info = await getAccountInfo(currentAccount.address);
-      logDebug('PortoProvider', 'Delegation info received', info);
-      
-      if (info.isDelegated) {
-        logInfo('PortoProvider', 'Account is delegated and ready');
+      if (hasDelegated === 'true') {
+        // We've set up delegation before, mark as ready
+        if (!silent) {
+          logInfo('PortoProvider', 'Delegation previously setup, marking as ready');
+        }
         setDelegationStatus('ready');
         setIsConnected(true);
+        return;
+      }
+      
+      // Only set to checking if not silent to prevent UI flicker
+      if (!silent) {
+        setDelegationStatus('checking');
+        logInfo('PortoProvider', 'Checking delegation status', { address: currentAccount.address });
+      }
+      
+      const info = await getAccountInfo(currentAccount.address);
+      if (!silent) {
+        logDebug('PortoProvider', 'Delegation info received', info);
+      }
+      
+      if (info.isDelegated) {
+        if (!silent || delegationStatus !== 'ready') {
+          logInfo('PortoProvider', 'Account is delegated and ready');
+          setDelegationStatus('ready');
+        }
+        setIsConnected(true);
+        // Store that delegation is setup
+        await SecureStore.setItemAsync(STORAGE_KEYS.HAS_DELEGATED, 'true');
       } else {
-        logInfo('PortoProvider', 'Account is not delegated - needs setup');
+        if (!silent) {
+          logInfo('PortoProvider', 'Account is not delegated - needs setup');
+        }
         setDelegationStatus('none');
         setIsConnected(false);
       }
     } catch (error: any) {
-      logWarn('PortoProvider', 'Delegation check failed, assuming not delegated', { 
-        error: error.message || error 
-      });
+      if (!silent) {
+        logWarn('PortoProvider', 'Delegation check failed, assuming not delegated', { 
+          error: error.message || error 
+        });
+      }
       // Instead of error state, assume not delegated
       // This is expected for new accounts
       setDelegationStatus('none');
       setIsConnected(false);
     }
-  }, []);
+  }, [delegationStatus]);
 
   // Setup delegation for the account
   const setupAccountDelegation = useCallback(async (): Promise<boolean> => {
@@ -167,16 +202,35 @@ export const PortoProvider = ({ children }: { children: ReactNode }) => {
       return false;
     }
 
+    // Check if delegation setup is already in progress
+    if (delegationSetupInProgress.current) {
+      logInfo('PortoProvider', 'Delegation setup already in progress, skipping duplicate call');
+      return true; // Return true to indicate it's being handled
+    }
+
+    // Check if delegation was already setup
+    const hasDelegated = await SecureStore.getItemAsync(STORAGE_KEYS.HAS_DELEGATED);
+    if (hasDelegated === 'true') {
+      logInfo('PortoProvider', 'Delegation already setup, skipping');
+      setDelegationStatus('ready');
+      setIsConnected(true);
+      return true;
+    }
+
     try {
+      delegationSetupInProgress.current = true;
       setDelegationStatus('setting-up');
       logInfo('PortoProvider', 'Setting up delegation', { address: currentAccount.address });
       
       const success = await setupDelegation(currentAccount);
       
       if (success) {
-        setDelegationStatus('ready');
-        setIsConnected(true);
-        logInfo('PortoProvider', 'Delegation setup successful');
+        // Store flag that delegation has been setup
+        await SecureStore.setItemAsync(STORAGE_KEYS.HAS_DELEGATED, 'true');
+        
+        // Don't mark as ready yet - let the setup screen complete minting first
+        logInfo('PortoProvider', 'Delegation setup successful - will deploy on first transaction');
+        
         return true;
       } else {
         setDelegationStatus('error');
@@ -187,6 +241,8 @@ export const PortoProvider = ({ children }: { children: ReactNode }) => {
       logError('PortoProvider', 'Failed to setup delegation', { error });
       setDelegationStatus('error');
       return false;
+    } finally {
+      delegationSetupInProgress.current = false;
     }
   }, []);
 
@@ -198,17 +254,14 @@ export const PortoProvider = ({ children }: { children: ReactNode }) => {
       throw new Error('No account available for transaction');
     }
 
-    // Setup delegation if needed (first transaction will deploy it)
-    if (delegationStatus !== 'ready') {
-      logInfo('PortoProvider', 'Setting up delegation on first transaction...');
-      const success = await setupAccountDelegation();
-      if (!success) {
-        logError('PortoProvider', 'Failed to setup delegation for transaction');
-        throw new Error('Failed to setup delegation');
-      }
+    // Check if delegation has been setup (stored in relay)
+    const hasDelegated = await SecureStore.getItemAsync(STORAGE_KEYS.HAS_DELEGATED);
+    if (hasDelegated !== 'true') {
+      logError('PortoProvider', 'Delegation not setup - please complete setup first');
+      throw new Error('Delegation not setup - please complete setup first');
     }
 
-    // Send the transaction
+    // Send the transaction (delegation will deploy on first tx if needed)
     logDebug('PortoProvider', 'Sending transaction', { 
       from: currentAccount.address,
       to,
@@ -217,23 +270,35 @@ export const PortoProvider = ({ children }: { children: ReactNode }) => {
     const result = await sendTransaction(currentAccount, to, data, value);
     logInfo('PortoProvider', 'Transaction sent successfully', { bundleId: result?.bundleId });
     return result;
-  }, [delegationStatus, setupAccountDelegation]);
+  }, []);
 
-  // Check Porto health on mount
+  // Check Porto health on mount and periodically
   useEffect(() => {
-    const checkConnection = async () => {
+    const checkConnection = async (silent = false) => {
       try {
-        logInfo('PortoProvider', 'Checking Porto relay health...');
+        if (!silent) {
+          logInfo('PortoProvider', 'Checking Porto relay health...');
+        }
         const health = await checkHealth();
-        logInfo('PortoProvider', 'Porto relay health check successful', health);
+        if (!silent) {
+          logInfo('PortoProvider', 'Porto relay health check successful', health);
+        }
         setIsConnected(true);
       } catch (error) {
-        logError('PortoProvider', 'Porto relay not reachable', { error });
+        if (!silent) {
+          logError('PortoProvider', 'Porto relay not reachable', { error });
+        }
         setIsConnected(false);
       }
     };
 
-    checkConnection();
+    // Initial check
+    checkConnection(false);
+    
+    // Silent background checks every 30 seconds
+    const interval = setInterval(() => checkConnection(true), 30000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   // Initialize account on mount
@@ -249,14 +314,56 @@ export const PortoProvider = ({ children }: { children: ReactNode }) => {
         address: account.address,
         isConnected
       });
-      checkDelegationStatus();
+      // Initial check is not silent
+      checkDelegationStatus(false);
+      
+      // Background silent checks every 20 seconds
+      const interval = setInterval(() => {
+        checkDelegationStatus(true);
+      }, 20000);
+      
+      return () => clearInterval(interval);
     } else {
       logDebug('PortoProvider', 'Waiting for account or connection', {
         hasAccount: !!account,
         isConnected
       });
     }
-  }, [account, isConnected, checkDelegationStatus]);
+  }, [account, isConnected]);
+
+  // Mark setup as complete (called after minting is done)
+  const markSetupComplete = useCallback(() => {
+    logInfo('PortoProvider', 'Marking setup as complete');
+    setDelegationStatus('ready');
+    setIsConnected(true);
+  }, []);
+
+  // Reset wallet function - clears all stored data
+  const resetWallet = useCallback(async () => {
+    try {
+      logInfo('PortoProvider', 'Resetting wallet...');
+      
+      // Clear all stored keys
+      await SecureStore.deleteItemAsync(STORAGE_KEYS.PRIVATE_KEY);
+      await SecureStore.deleteItemAsync(STORAGE_KEYS.HAS_DELEGATED);
+      await SecureStore.deleteItemAsync(STORAGE_KEYS.SESSION_KEY);
+      await SecureStore.deleteItemAsync(STORAGE_KEYS.DELEGATION_STATUS);
+      
+      // Reset state
+      setAccount(null);
+      accountRef.current = null;
+      setDelegationStatus('none');
+      setIsInitialized(false);
+      
+      logInfo('PortoProvider', 'Wallet reset complete');
+      
+      // Reinitialize with new account
+      await initializeAccount();
+    } catch (error) {
+      logError('PortoProvider', 'Failed to reset wallet', { error });
+      throw error;
+    }
+  }, [initializeAccount]);
 
   const value: PortoContextType = {
     isInitialized,
@@ -268,6 +375,8 @@ export const PortoProvider = ({ children }: { children: ReactNode }) => {
     setupAccountDelegation,
     executeTransaction,
     checkDelegationStatus,
+    markSetupComplete,
+    resetWallet,
   };
 
   return <PortoContext.Provider value={value}>{children}</PortoContext.Provider>;
