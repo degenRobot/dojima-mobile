@@ -16,7 +16,9 @@ import { SettingsScreen } from './src/screens/SettingsScreen';
 
 // Import providers
 import { WebSocketProvider } from './src/providers/MockWebSocketProvider';
+import { RealWebSocketProvider } from './src/providers/RealWebSocketProvider';
 import { PortoProvider, usePorto } from './src/providers/SimplePortoProvider';
+import { FEATURES } from './src/config/contracts';
 
 const Tab = createBottomTabNavigator();
 const queryClient = new QueryClient();
@@ -133,15 +135,19 @@ export default function App() {
     logInfo('App', '🚀 App started successfully');
     console.log('=== APP STARTED ===');
     console.log('=== Check Settings > Debug Logs to see all logs ===');
+    console.log('=== WebSocket:', FEATURES.websocket ? 'ENABLED' : 'DISABLED', '===');
   }, []);
+
+  // Use real WebSocket provider if feature is enabled
+  const WSProvider = FEATURES.websocket ? RealWebSocketProvider : WebSocketProvider;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
         <PortoProvider>
-          <WebSocketProvider>
+          <WSProvider>
             <AppNavigator />
-          </WebSocketProvider>
+          </WSProvider>
         </PortoProvider>
       </QueryClientProvider>
     </GestureHandlerRootView>

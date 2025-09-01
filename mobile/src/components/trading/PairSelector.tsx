@@ -9,16 +9,17 @@ import {
 } from 'react-native';
 import { COLORS } from '../../config/constants';
 import { TRADING_BOOKS } from '../../config/contracts';
+import type { TradingPair } from '../../types/trading';
 
 interface PairSelectorProps {
-  selectedPair: { base: string; quote: string; symbol: string };
-  onSelectPair: (pair: typeof TRADING_BOOKS[0]) => void;
+  selectedPair: TradingPair;
+  onSelectPair: (pair: TradingPair) => void;
 }
 
 export function PairSelector({ selectedPair, onSelectPair }: PairSelectorProps) {
   const [modalVisible, setModalVisible] = useState(false);
 
-  const handleSelectPair = (pair: typeof TRADING_BOOKS[0]) => {
+  const handleSelectPair = (pair: TradingPair) => {
     onSelectPair(pair);
     setModalVisible(false);
   };
@@ -54,7 +55,7 @@ export function PairSelector({ selectedPair, onSelectPair }: PairSelectorProps) 
                     styles.pairItem,
                     item.symbol === selectedPair.symbol && styles.pairItemSelected,
                   ]}
-                  onPress={() => handleSelectPair(item)}
+                  onPress={() => handleSelectPair(item as TradingPair)}
                 >
                   <Text style={[
                     styles.pairItemText,

@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { privateKeyToAccount } from 'viem/accounts';
-import { generatePrivateKey } from 'viem';
+import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
 import * as SecureStore from 'expo-secure-store';
 import { NETWORK_CONFIG, CONTRACTS } from '../config/contracts';
 import { STORAGE_KEYS } from '../config/constants';

@@ -4,121 +4,309 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-We are building a CLOB using the rise-vibe-kit, a full-stack template for building dApps on RISE blockchain with real-time features, automatic contract syncing, and embedded wallet support.
+This is the **Dojima Mobile** project - a comprehensive decentralized trading platform built on RISE blockchain featuring:
+- On-chain Central Limit Order Book (UnifiedCLOBV2)
+- Gasless trading via Porto Protocol (EIP-7702)
+- Mobile-first React Native application
+- Market orders with slippage protection
+- One-click onboarding with automatic token minting
 
-The primary goal of this template is to provide a fast and efficient way for builders to build dApps on RISE blockchain with real-time features, automatic contract syncing, and embedded wallet support along with easy to use templates / contracts / tools available. 
+## Network Configuration
+
+### RISE Testnet
+```
+Network Name: RISE Testnet
+Chain ID: 11155931
+RPC URL: https://testnet.riselabs.xyz
+WebSocket: wss://testnet.riselabs.xyz/ws
+Explorer: https://explorer.testnet.riselabs.xyz
+Porto Relay: https://rise-testnet-porto.fly.dev
+```
+
+### Current Deployment (Latest)
+```
+UnifiedCLOBV2: 0x4DA4bbB5CD9cdCE0f632e414a00FA1fe2c34f50C
+USDC Token: 0xC23b6B892c947746984474d52BBDF4ADd25717B3
+WETH Token: 0xd2B8ad86Ba1bF5D31d95Fcd3edE7dA0D4fEA89e4
+WBTC Token: 0x7C4B1b2953Fd3bB0A4aC07da70b0839d1D09c2cA
+Porto Delegation: 0x894C14A66508D221A219Dd0064b4A6718d0AAA52
+```
 
 ## Commands
 
-### Development
+### Mobile Development
 ```bash
-npm run dev                  # Start frontend dev server
-npm run chain               # Run local Anvil fork
-npm run deploy-and-sync     # Deploy contracts & sync to frontend
-npm run test                # Run contract tests
-npm run build               # Build frontend
-npm run lint                # Run frontend linter
-npm run type-check          # TypeScript validation
+cd mobile && npm start       # Start Expo dev server
+npm run ios                  # Run on iOS simulator
+npm run android              # Run on Android emulator  
+npm run web                  # Run in web browser
 ```
 
-### Deployment
+### Contract Development
 ```bash
-npm run deploy-and-sync                    # Default deployment
-npm run deploy-and-sync -- -a              # Deploy all contracts
-npm run deploy-and-sync -- -s DeployScript # Deploy specific script
-npm run deploy-and-sync -- -v              # Deploy with verification
-npm run deploy-and-sync -- -n localhost    # Deploy to local network
+cd contracts
+forge build                  # Compile contracts
+forge test                   # Run tests
+forge test --gas-report      # Gas optimization report
+forge script script/DeployUnifiedCLOBV2.s.sol --rpc-url https://testnet.riselabs.xyz --broadcast
 ```
 
-### Contract Testing
+### Integration Testing
 ```bash
-cd contracts && forge test                 # Run all tests
-cd contracts && forge test --gas-report    # Test with gas reporting
-cd contracts && forge test --match-test testName  # Run specific test
+cd tests
+node test-unified-clob-v2.js     # Test order placement
+node test-market-orders.js        # Test market orders
+node test-complete-flow.js        # Full integration test
+node test-mobile-flow.js          # Test mobile app flow
 ```
 
 ## Architecture
 
-### Monorepo Structure
+### Project Structure
 - `/contracts` - Foundry-based Solidity contracts
-- `/frontend` - Next.js 15 app with TypeScript
-- `/ponder` - Optional blockchain event indexer
-- `/scripts` - Deployment and synchronization automation
+- `/mobile` - React Native app with Expo SDK 51
+- `/tests` - Integration test suite
+- `/external/porto-relay` - Porto relay reference implementation
 
 ### Key Technologies
-- **Smart Contracts**: Solidity, Foundry, OpenZeppelin
-- **Frontend**: Next.js 15, TypeScript 5, Tailwind CSS v4, Wagmi v2, Viem v2, Ethers v6
-- **Real-time**: Custom WebSocket manager for RISE's `rise_subscribe` method
-- **Embedded Wallet**: Shreds package for browser-based wallets with `eth_sendRawTransactionSync`
+- **Smart Contracts**: Solidity 0.8.23+, Foundry, OpenZeppelin
+- **Mobile App**: React Native, Expo SDK 51, TypeScript
+- **Porto Protocol**: EIP-7702 delegation, gasless transactions
+- **Blockchain**: RISE testnet with synchronous transaction support
+- **Testing**: Viem-based integration tests
 
-### Contract Sync Flow
-1. Deployment scripts in `/contracts/script/` deploy to RISE testnet
-2. `sync-contracts.js` extracts addresses/ABIs from broadcast files
-3. TypeScript types auto-generated in `/frontend/src/contracts/`
-4. Frontend hooks automatically use latest contract data
+## Porto Protocol Integration
 
-### WebSocket Event System
-- `RiseWebSocketManager` maintains persistent WebSocket connection
-- Subscribes to all deployed contracts automatically
-- Decodes events using contract-specific ABIs
-- Provides real-time updates to React components via context
+### Overview
+Porto Protocol enables gasless transactions through account delegation and sponsored relay services. It uses EIP-7702 to add smart account functionality to regular EOAs (Externally Owned Accounts).
 
-### Embedded Wallet Integration
-- `RiseSyncClient` handles synchronous transactions for embedded wallets
-- Auto-detects token deployments and increases gas limit (5M vs 300k)
-- Nonce management prevents transaction conflicts
-- Falls back to standard flow for external wallets
+### Key RPC Methods
+
+#### wallet_prepareUpgradeAccount
+Prepares an account for delegation by generating the necessary digests for signing.
+```javascript
+const prepareResponse = await relayCall('wallet_prepareUpgradeAccount', [{
+  address: userAddress,
+  delegation: DELEGATION_PROXY_ADDRESS,
+  capabilities: { authorizeKeys: [] },
+  chainId: CHAIN_ID
+}]);
+// Returns: { context, digests: { auth, exec } }
+```
+
+#### wallet_upgradeAccount  
+Completes the delegation setup after signing the digests.
+```javascript
+await relayCall('wallet_upgradeAccount', [{
+  context: prepareResponse.context,
+  signatures: { 
+    auth: authSignature,
+    exec: execSignature 
+  }
+}]);
+```
+
+#### wallet_prepareCalls
+Prepares gasless transaction intents for execution.
+```javascript
+const prepareResult = await relayCall('wallet_prepareCalls', [{
+  from: userAddress,
+  chainId: CHAIN_ID,
+  calls: [{
+    to: contractAddress,
+    data: encodedData,
+    value: '0x0'
+  }],
+  capabilities: {
+    meta: { feeToken: '0x0000...0000' } // ETH for gasless
+  },
+  key: {
+    prehash: false,
+    publicKey: serializePublicKey(userAddress),
+    type: 'secp256k1'
+  }
+}]);
+// Returns: { context, digest }
+```
+
+#### wallet_sendPreparedCalls
+Submits the signed intent to the blockchain.
+```javascript
+const sendResult = await relayCall('wallet_sendPreparedCalls', [{
+  context: prepareResult.context,
+  signature: signedDigest
+}]);
+// Returns: { bundleId, status }
+```
+
+#### wallet_getCallsStatus
+Monitors transaction execution status.
+```javascript
+const status = await relayCall('wallet_getCallsStatus', [bundleId]);
+// Returns: { status: 'pending' | 'success' | 'failed' }
+```
+
+### Porto Flow in Mobile App
+
+1. **Account Setup** (`SetupScreen.tsx`)
+   - Generate or load private key
+   - Call `wallet_prepareUpgradeAccount`
+   - Sign auth and exec digests
+   - Call `wallet_upgradeAccount` to complete delegation
+
+2. **Gasless Transactions** (`simple-porto.ts`)
+   - Prepare transaction with `wallet_prepareCalls`
+   - Sign the intent digest
+   - Submit with `wallet_sendPreparedCalls`
+   - Monitor status with `wallet_getCallsStatus`
+
+3. **Key Management**
+   - Private keys stored in Expo SecureStore
+   - Session keys supported but not currently used
+   - Delegation keys checked via `wallet_getKeys`
 
 ## RISE-Specific Features
 
 ### Synchronous Transactions
-RISE supports `eth_sendRawTransactionSync` via the shreds package, providing instant transaction receipts without waiting for block confirmation.
+RISE supports `eth_sendRawTransactionSync` providing instant transaction receipts without waiting for block confirmation. The Porto relay leverages this for immediate transaction confirmation.
 
-### Real-time Events
-WebSocket subscriptions via `rise_subscribe` deliver blockchain events in real-time through "shreds" (sub-blocks).
+### Real-time Events  
+WebSocket subscriptions via `rise_subscribe` deliver blockchain events in real-time.
 
+### Gas Sponsorship
+All transactions are sponsored through the Porto relay, meaning users never need ETH for gas fees.
 
 ## Development Workflow
 
-1. Write contracts in `/contracts/src/`
-2. Create deployment script in `/contracts/script/`
-3. Run `npm run deploy-and-sync`
-4. Frontend automatically updates with new contract data
+1. **Contract Development**
+   - Write contracts in `/contracts/src/`
+   - Test with `forge test`
+   - Deploy with deployment scripts
+   - Extract ABIs for mobile app
+
+2. **Mobile Development**
+   - Update contract addresses in `/mobile/src/config/contracts.ts`
+   - Update ABIs in `/mobile/src/config/abis/`
+   - Test with Expo development server
+   - Use hooks for contract interactions
+
+3. **Testing Flow**
+   - Run contract tests: `forge test`
+   - Run integration tests: `node test-complete-flow.js`
+   - Test mobile app: `npm start` in mobile directory
 
 ## Important Files
 
-- `/frontend/src/lib/websocket/RiseWebSocketManager.ts` - WebSocket event handling
-- `/frontend/src/lib/rise-sync-client.ts` - Embedded wallet transactions
-- `/frontend/src/contracts/contracts.ts` - Auto-generated contract data
-- `/frontend/src/hooks/useContractFactory.ts` - Contract interaction hook factory
+### Contracts
+- `/contracts/src/UnifiedCLOBV2.sol` - Main CLOB contract with market orders
+- `/contracts/src/tokens/MintableERC20.sol` - Test tokens with one-time mint
+
+### Mobile App
+- `/mobile/src/screens/SetupScreen.tsx` - Onboarding and delegation setup
+- `/mobile/src/hooks/useCLOBContract.ts` - Trading operations hook
+- `/mobile/src/lib/porto/simple-porto.ts` - Porto relay integration
+- `/mobile/src/config/contracts.ts` - Contract addresses and configuration
+
+### Testing
+- `/tests/lib/porto-clob-utils.js` - Utility functions for gasless transactions
+- `/tests/test-complete-flow.js` - Comprehensive integration test
+- `/tests/test-market-orders.js` - Market order functionality test
 
 ## Error Handling Patterns
 
-- Always check for embedded wallet vs external wallet in transaction flows
-- Handle BigInt serialization with `serializeBigInt` utility
-- Detect token deployments by function selector for appropriate gas limits
-- Subscribe to all contracts on WebSocket connection/reconnection
+### Porto Relay Errors
+- `wallet_getKeys` may fail for new accounts (expected)
+- `0xfbcb0b34` error indicates hash mismatch (usually wrong nonce)
+- "already known" means transaction is in mempool
+- "missing nonce" indicates gap in transaction sequence
 
-# CLOB 
+### Contract Errors  
+- Check delegation status before trading operations
+- Verify token approvals before deposits
+- Handle slippage protection for market orders
+- Validate order book IDs (1: WETH/USDC, 2: WBTC/USDC)
 
-We are using : https://github.com/degenRobot/open-clob
-cloned in open-clob as the core building blocks for our contracts 
+## UnifiedCLOBV2 Contract Features
 
-We are using ponder for indexing : https://ponder.sh/
-(specfically ponder-rise package : https://www.npmjs.com/package/ponder-rise)
+### Order Types
+- **Limit Orders**: Traditional price-time priority matching
+- **Market Orders**: Instant execution with slippage protection (NEW!)
 
-# Long Term Objective 
+### Key Functions
+```solidity
+// Place a limit order
+function placeOrder(
+    uint256 bookId,
+    OrderType orderType,  // BUY = 0, SELL = 1
+    uint256 price,        // Price in quote token decimals
+    uint256 amount        // Amount normalized to 18 decimals
+)
 
-See PRD.md for notes on long term objectives for our CLOB 
-(Note this repo is just a prototype so we don't need to meet all requirements)
+// Place a market order with slippage protection
+function placeMarketOrder(
+    uint256 bookId,
+    OrderType orderType,
+    uint256 amount,       // Amount in 18 decimals
+    uint256 maxSlippage   // Basis points (100 = 1%)
+) returns (uint256 totalFilled, uint256 avgPrice)
 
+// Deposit tokens to CLOB
+function deposit(address token, uint256 amount)
 
+// Withdraw tokens from CLOB
+function withdraw(address token, uint256 amount)
 
-# Code style
+// Manual order matching (for limit orders)
+function matchOrders(uint256 bookId)
+```
 
-- For frontend code - maintain type safety & ensure npm run build doesn't throw errors so we can deploy to production simply 
-- For contracts write unit tests & use foundry test 
+### Trading Books
+- Book 1: WETH/USDC (Ethereum vs USD Coin)
+- Book 2: WBTC/USDC (Bitcoin vs USD Coin)
 
-# External Resources
+### Decimal Normalization
+- All amounts in the contract are normalized to 18 decimals
+- Prices use quote token decimals (USDC = 6, WBTC = 8)
+- The contract handles decimal conversion internally
 
-Foundry Book: Official Foundry documentation : https://book.getfoundry.sh/
+## Code Style Guidelines
+
+### Mobile App (React Native/TypeScript)
+- Maintain strict TypeScript types - no `any` types
+- Use functional components with hooks
+- Follow React Native best practices
+- Handle errors gracefully with user-friendly messages
+- Log important operations with the logger utility
+- Ensure `npm run build` passes without errors
+
+### Smart Contracts (Solidity)
+- Follow Solidity 0.8.23+ best practices
+- Write comprehensive unit tests
+- Use `forge fmt` for formatting
+- Document gas costs for operations
+- Emit events for all state changes
+- Use OpenZeppelin contracts where applicable
+
+### Testing
+- Write integration tests for all user flows
+- Test with realistic gas limits
+- Verify state changes after transactions
+- Test error conditions and edge cases
+- Document test purpose and expected outcomes
+
+## External Resources
+
+- **Foundry Book**: https://book.getfoundry.sh/
+- **Porto Protocol**: https://porto.sh
+- **RISE Chain Docs**: https://docs.risechain.com
+- **React Native**: https://reactnative.dev/
+- **Expo Documentation**: https://docs.expo.dev/
+- **Viem Documentation**: https://viem.sh/
+
+# important-instruction-reminders
+Do what has been asked; nothing more, nothing less.
+NEVER create files unless they're absolutely necessary for achieving your goal.
+ALWAYS prefer editing an existing file to creating a new one.
+NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.
+
+IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.

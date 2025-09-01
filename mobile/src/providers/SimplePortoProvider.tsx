@@ -17,6 +17,7 @@ interface PortoContextType {
   isConnected: boolean;
   account: PrivateKeyAccount | null;
   userAddress: string | null;
+  address: string | undefined;
   delegationStatus: 'none' | 'checking' | 'setting-up' | 'ready' | 'error';
   initializeAccount: () => Promise<void>;
   setupAccountDelegation: () => Promise<boolean>;
@@ -31,6 +32,7 @@ const PortoContext = createContext<PortoContextType>({
   isConnected: false,
   account: null,
   userAddress: null,
+  address: undefined,
   delegationStatus: 'none',
   initializeAccount: async () => {},
   setupAccountDelegation: async () => false,
@@ -370,6 +372,7 @@ export const PortoProvider = ({ children }: { children: ReactNode }) => {
     isConnected,
     account,
     userAddress: account?.address || null,
+    address: account?.address,
     delegationStatus,
     initializeAccount,
     setupAccountDelegation,

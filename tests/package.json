@@ -7,9 +7,11 @@
     "test:orders": "node test-clob-orders.js",
     "test:trading": "node test-clob-trading.js",
     "test:all": "npm run test:clob && npm run test:orders && npm run test:trading",
-    "test:v2": "node test-unified-clob-v2.js"
+    "test:v2": "node test-unified-clob-v2.js",
+    "test:indexer": "node test-indexer-integration.js"
   },
   "dependencies": {
+    "dotenv": "^17.2.1",
     "viem": "^2.33.0"
   }
 }

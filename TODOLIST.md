@@ -103,55 +103,33 @@ Dojima Mobile is a decentralized trading platform on RISE blockchain with gasles
 - `/mobile/src/components/trading/OrderBook.tsx` - UI component
 - `/mobile/src/screens/MarketsScreen.tsx` - Replace mock with real data
 
-### 4. Indexing Integration with Ponder
-**Goal**: Connect GraphQL API for historical data
+### 4. ✅ Indexing Integration with Ponder [COMPLETED]
+**Status**: Fully functional and tested
 
-#### Setup Steps:
-1. **Update Ponder Configuration** (`/indexing/ponder.config.ts`):
-   ```typescript
-   UnifiedCLOBV2: {
-     chain: "rise",
-     abi: unifiedCLOBV2ABI,
-     address: "0x4DA4bbB5CD9cdCE0f632e414a00FA1fe2c34f50C", // Update to new address
-     startBlock: 18000000,
-   }
-   ```
+#### Completed:
+- ✅ Ponder configuration updated with UnifiedCLOBV2 at correct block (21181053)
+- ✅ Event handlers implemented for all contract events:
+  - BookCreated, OrderPlaced, OrderMatched, OrderCancelled
+  - Deposited, Withdrawn, PriceUpdate, VolumeUpdate
+- ✅ GraphQL API running at `http://localhost:42069`
+- ✅ Test suite passing (9/9 tests)
+- ✅ Integration test created (`/tests/test-indexer-integration.js`)
 
-2. **Add Event Handlers** (`/indexing/src/UnifiedCLOBV2.ts`):
-   ```typescript
-   // Handle OrderPlaced events
-   ponder.on("UnifiedCLOBV2:OrderPlaced", async ({ event, context }) => {
-     // Store order data
-   });
-   
-   // Handle MarketOrderExecuted events (NEW)
-   ponder.on("UnifiedCLOBV2:MarketOrderExecuted", async ({ event, context }) => {
-     // Track market order execution
-   });
-   ```
-
-3. **Update Schema** (`/indexing/ponder.schema.ts`):
-   - Add MarketOrder entity
-   - Add slippage tracking fields
-   - Update Trade entity for market orders
-
-#### Running the Stack:
+#### Running the Indexer:
 ```bash
-# Terminal 1: Start Indexer
+# Start Ponder indexer
 cd indexing
-npm install
-npm run dev  # Runs on http://localhost:42069
+npm run dev  # GraphQL API at http://localhost:42069
 
-# Terminal 2: Start Mobile App
-cd mobile
-npm start
+# Test the indexer
+npm test  # Runs test suite
 
-# Terminal 3: (Optional) Run tests
-cd tests
-node test-complete-mobile-flow.js
+# Run integration test
+cd ../tests
+npm run test:indexer
 ```
 
-#### Mobile App Integration:
+#### Next Steps for Mobile Integration:
 - [ ] Add GraphQL client to mobile app
 - [ ] Create hooks for historical data
 - [ ] Display trade history in Portfolio screen
@@ -352,5 +330,23 @@ Porto Delegation: 0x894C14A66508D221A219Dd0064b4A6718d0AAA52
 
 ---
 
-Last Updated: November 2024
-Version: 0.3.0-alpha
+## Recent Updates (December 2024)
+
+### ✅ Completed Today:
+1. **Fixed Portfolio Screen** - Resolved data structure and hook integration issues
+2. **Fixed Wallet Setup Flow** - Corrected delegation and key generation
+3. **Ponder Indexer Working** - Successfully indexing UnifiedCLOBV2 events
+4. **Integration Test Suite** - Created comprehensive test with indexer verification
+5. **Repository Cleanup** - Removed old documentation and organized test files
+
+### Current Working Stack:
+- UnifiedCLOBV2 contract deployed and functional
+- Ponder indexer running and syncing events
+- GraphQL API serving data at port 42069
+- Mobile app with working Porto delegation
+- Test suite with indexer integration
+
+---
+
+Last Updated: December 2024
+Version: 0.4.0-alpha

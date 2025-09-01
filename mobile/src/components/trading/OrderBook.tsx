@@ -1,13 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
 import { COLORS, UI_CONFIG } from '../../config/constants';
-import { logDebug, logError } from '../../utils/logger';
+import { logDebug, logError, logInfo } from '../../utils/logger';
+import { useOrderBook, isIndexerAvailable } from '../../hooks/useIndexer';
+import { useOrderBookFromContract } from '../../hooks/useOrderBookFromContract';
+import { formatUnits } from 'viem';
+import { CONTRACTS } from '../../config/contracts';
 
 interface OrderBookProps {
   pair: {
@@ -25,122 +29,152 @@ interface OrderLevel {
   percentage: number;
 }
 
-// Mock order book data generator with better error handling
-const generateMockOrders = (basePrice: number, type: 'bid' | 'ask'): OrderLevel[] => {
-  try {
-    return Array.from({ length: 10 }, (_, i) => {
-      const priceOffset = type === 'bid' ? -i * 0.5 : (i + 1) * 0.5;
-      const price = (basePrice + priceOffset).toFixed(2);
-      const amount = (Math.random() * 10).toFixed(4);
-      const total = (parseFloat(price) * parseFloat(amount)).toFixed(2);
-      const percentage = Math.random() * 100;
-      
-      return { price, amount, total, percentage };
-    });
-  } catch (error) {
-    logError('OrderBook', 'Failed to generate mock orders', { error, type });
-    return [];
-  }
-};
-
 export function OrderBook({ pair }: OrderBookProps) {
-  // Use mock data with proper error handling
-  const basePrice = pair?.base === 'WBTC' ? 65000 : pair?.base === 'WETH' ? 2500 : 1;
+  // Get book ID
+  const bookId = pair?.id || 1;
   
-  const [bids, setBids] = useState<OrderLevel[]>(() => generateMockOrders(basePrice, 'bid'));
-  const [asks, setAsks] = useState<OrderLevel[]>(() => generateMockOrders(basePrice, 'ask'));
-  const [spread, setSpread] = useState('0.00');
-  const [spreadPercent, setSpreadPercent] = useState('0.00%');
-
-  // Log component mount
+  // Use real data from contract
+  const { 
+    orderBook: contractOrderBook, 
+    loading: contractLoading, 
+    error: contractError, 
+    refetch 
+  } = useOrderBookFromContract(bookId);
+  
+  // Fallback: Use indexer data if available
+  const { data: indexerData, isLoading: indexerLoading } = useOrderBook(bookId.toString());
+  
+  // Log data source
   useEffect(() => {
-    logDebug('OrderBook', 'Component mounted', { 
-      pair: pair?.symbol || 'unknown',
-      hasBids: bids.length > 0,
-      hasAsks: asks.length > 0 
-    });
-  }, []);
-
-  // Calculate spread with error handling
-  useEffect(() => {
-    try {
-      if (asks.length > 0 && bids.length > 0) {
-        const bestAsk = parseFloat(asks[0].price);
-        const bestBid = parseFloat(bids[0].price);
-        
-        if (!isNaN(bestAsk) && !isNaN(bestBid) && bestBid > 0) {
-          const spreadValue = bestAsk - bestBid;
-          const spreadPct = ((spreadValue / bestBid) * 100).toFixed(2);
-          setSpread(spreadValue.toFixed(2));
-          setSpreadPercent(`${spreadPct}%`);
-        }
-      }
-    } catch (error) {
-      logError('OrderBook', 'Failed to calculate spread', { error });
+    if (contractOrderBook.buyOrders.length > 0 || contractOrderBook.sellOrders.length > 0) {
+      logInfo('OrderBook', 'Using real contract data', {
+        bookId,
+        buys: contractOrderBook.buyOrders.length,
+        sells: contractOrderBook.sellOrders.length,
+      });
+    } else if (indexerData && !contractLoading) {
+      logDebug('OrderBook', 'Using indexer data as fallback');
+    } else if (!contractLoading && !indexerLoading) {
+      logDebug('OrderBook', 'No order book data available');
     }
-  }, [asks, bids]);
+  }, [contractOrderBook, indexerData, contractLoading, indexerLoading, bookId]);
 
-  // Simulate order book updates
-  useEffect(() => {
-    const interval = setInterval(() => {
-      try {
-        // Randomly update a few orders to simulate market activity
-        setBids(prev => {
-          const updated = [...prev];
-          const indexToUpdate = Math.floor(Math.random() * Math.min(5, updated.length));
-          if (updated[indexToUpdate]) {
-            updated[indexToUpdate] = {
-              ...updated[indexToUpdate],
-              amount: (Math.random() * 10).toFixed(4),
-              total: (Math.random() * 20000).toFixed(2),
-              percentage: Math.random() * 100,
-            };
-          }
-          return updated;
-        });
-
-        setAsks(prev => {
-          const updated = [...prev];
-          const indexToUpdate = Math.floor(Math.random() * Math.min(5, updated.length));
-          if (updated[indexToUpdate]) {
-            updated[indexToUpdate] = {
-              ...updated[indexToUpdate],
-              amount: (Math.random() * 10).toFixed(4),
-              total: (Math.random() * 20000).toFixed(2),
-              percentage: Math.random() * 100,
-            };
-          }
-          return updated;
-        });
-      } catch (error) {
-        logError('OrderBook', 'Failed to update order book', { error });
-      }
-    }, 5000); // Update every 5 seconds
-
-    return () => clearInterval(interval);
-  }, []);
-
-  const renderOrderLevel = (item: OrderLevel | null, type: 'bid' | 'ask') => {
-    if (!item) return null;
+  // Process data: prefer contract data, then indexer
+  const { bids, asks, spread, spreadPercent } = useMemo(() => {
+    // First try: Use contract data if available
+    if (contractOrderBook.buyOrders.length > 0 || contractOrderBook.sellOrders.length > 0) {
+      const maxBidAmount = Math.max(...contractOrderBook.buyOrders.map(o => parseFloat(o.total || '0')), 1);
+      const maxAskAmount = Math.max(...contractOrderBook.sellOrders.map(o => parseFloat(o.total || '0')), 1);
+      
+      const processedBids = contractOrderBook.buyOrders.map((order) => ({
+        ...order,
+        percentage: (parseFloat(order.total || '0') / maxBidAmount) * 100,
+      }));
+      
+      const processedAsks = contractOrderBook.sellOrders.map((order) => ({
+        ...order,
+        percentage: (parseFloat(order.total || '0') / maxAskAmount) * 100,
+      }));
+      
+      const bestBid = processedBids[0]?.price || '0';
+      const bestAsk = processedAsks[0]?.price || '0';
+      const spreadValue = parseFloat(contractOrderBook.spread);
+      const spreadPct = bestBid && bestAsk && parseFloat(bestBid) > 0 ? 
+        ((spreadValue / parseFloat(bestBid)) * 100).toFixed(2) : '0.00';
+      
+      return {
+        bids: processedBids.slice(0, 10),
+        asks: processedAsks.slice(0, 10),
+        spread: contractOrderBook.spread,
+        spreadPercent: spreadPct,
+      };
+    }
     
+    // Second try: Use indexer data if available
+    if (isIndexerAvailable() && indexerData) {
+      const data = indexerData as any;
+      const processedBids = (data.buyOrders || []).map((order: any) => ({
+        price: formatUnits(BigInt(order.price || '0'), CONTRACTS.USDC.decimals),
+        amount: formatUnits(BigInt(order.remaining || '0'), 18),
+        total: (parseFloat(formatUnits(BigInt(order.price || '0'), CONTRACTS.USDC.decimals)) * 
+                parseFloat(formatUnits(BigInt(order.remaining || '0'), 18))).toFixed(2),
+        percentage: 50, // Default percentage
+      }));
+      
+      const processedAsks = (data.sellOrders || []).map((order: any) => ({
+        price: formatUnits(BigInt(order.price || '0'), CONTRACTS.USDC.decimals),
+        amount: formatUnits(BigInt(order.remaining || '0'), 18),
+        total: (parseFloat(formatUnits(BigInt(order.price || '0'), CONTRACTS.USDC.decimals)) * 
+                parseFloat(formatUnits(BigInt(order.remaining || '0'), 18))).toFixed(2),
+        percentage: 50, // Default percentage
+      }));
+      
+      const bestBid = processedBids[0]?.price || '0';
+      const bestAsk = processedAsks[0]?.price || '0';
+      const spreadValue = parseFloat(bestAsk) - parseFloat(bestBid);
+      const spreadPct = bestBid && parseFloat(bestBid) > 0 ? 
+        ((spreadValue / parseFloat(bestBid)) * 100).toFixed(2) : '0.00';
+      
+      return {
+        bids: processedBids.slice(0, 10),
+        asks: processedAsks.slice(0, 10),
+        spread: spreadValue.toFixed(2),
+        spreadPercent: spreadPct,
+      };
+    }
+    
+    // No data available
+    return {
+      bids: [],
+      asks: [],
+      spread: '0',
+      spreadPercent: '0.00',
+    };
+  }, [contractOrderBook, indexerData]);
+
+  const renderOrderLevel = (item: OrderLevel, type: 'bid' | 'ask') => {
     return (
-      <TouchableOpacity style={styles.orderRow} activeOpacity={0.7}>
+      <TouchableOpacity style={styles.orderRow} activeOpacity={0.7} key={`${type}-${item.price}`}>
         <View style={[
           styles.depthBar,
           type === 'bid' ? styles.bidDepthBar : styles.askDepthBar,
-          { width: `${Math.min(item.percentage || 0, 100)}%` },
+          { width: `${Math.min(item.percentage, 100)}%` },
         ]} />
         <Text style={[
           styles.priceText,
           type === 'bid' ? styles.bidText : styles.askText,
         ]}>
-          {item.price || '0.00'}
+          {item.price}
         </Text>
-        <Text style={styles.amountText}>{item.amount || '0.00'}</Text>
-        <Text style={styles.totalText}>{item.total || '0.00'}</Text>
+        <Text style={styles.amountText}>{item.amount}</Text>
+        <Text style={styles.totalText}>{item.total}</Text>
       </TouchableOpacity>
     );
   };
+
+  // Loading state
+  const isLoading = contractLoading && !contractOrderBook.buyOrders.length && !indexerData;
+  
+  if (isLoading) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={styles.loadingText}>Loading order book...</Text>
+      </View>
+    );
+  }
+  
+  // Error state (only if no fallback data)
+  if (contractError && !indexerData && bids.length === 0 && asks.length === 0) {
+    return (
+      <View style={[styles.container, styles.errorContainer]}>
+        <Text style={styles.errorText}>Failed to load order book</Text>
+        <TouchableOpacity onPress={refetch} style={styles.retryButton}>
+          <Text style={styles.retryText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   // Error handling for missing pair
   if (!pair) {
@@ -157,44 +191,40 @@ export function OrderBook({ pair }: OrderBookProps) {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerText}>Price ({pair.quote || 'USD'})</Text>
-        <Text style={styles.headerText}>Amount ({pair.base || 'TOKEN'})</Text>
+        <Text style={styles.headerText}>Price ({pair.quote})</Text>
+        <Text style={styles.headerText}>Amount ({pair.base})</Text>
         <Text style={styles.headerText}>Total</Text>
       </View>
 
-      {/* Asks (Sell Orders) */}
-      <FlatList
-        data={asks.slice(0, UI_CONFIG.orderBookLevels).reverse()}
-        renderItem={({ item }) => renderOrderLevel(item, 'ask')}
-        keyExtractor={(item, index) => `ask-${index}`}
-        scrollEnabled={false}
-        style={styles.asksList}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
+      {/* Sell Orders (Asks) */}
+      <View style={styles.asksContainer}>
+        {asks.length > 0 ? (
+          [...asks].reverse().map(ask => renderOrderLevel(ask, 'ask'))
+        ) : (
+          <View style={styles.emptySection}>
             <Text style={styles.emptyText}>No sell orders</Text>
           </View>
-        }
-      />
+        )}
+      </View>
 
       {/* Spread */}
       <View style={styles.spreadContainer}>
         <Text style={styles.spreadLabel}>Spread</Text>
-        <Text style={styles.spreadValue}>{spread} ({spreadPercent})</Text>
+        <Text style={styles.spreadValue}>
+          ${spread} ({spreadPercent}%)
+        </Text>
       </View>
 
-      {/* Bids (Buy Orders) */}
-      <FlatList
-        data={bids.slice(0, UI_CONFIG.orderBookLevels)}
-        renderItem={({ item }) => renderOrderLevel(item, 'bid')}
-        keyExtractor={(item, index) => `bid-${index}`}
-        scrollEnabled={false}
-        style={styles.bidsList}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
+      {/* Buy Orders (Bids) */}
+      <View style={styles.bidsContainer}>
+        {bids.length > 0 ? (
+          bids.map(bid => renderOrderLevel(bid, 'bid'))
+        ) : (
+          <View style={styles.emptySection}>
             <Text style={styles.emptyText}>No buy orders</Text>
           </View>
-        }
-      />
+        )}
+      </View>
     </View>
   );
 }
@@ -202,9 +232,7 @@ export function OrderBook({ pair }: OrderBookProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.surface,
-    borderRadius: 8,
-    overflow: 'hidden',
+    backgroundColor: COLORS.backgroundSecondary,
   },
   header: {
     flexDirection: 'row',
@@ -212,19 +240,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    borderBottomColor: COLORS.backgroundTertiary,
   },
   headerText: {
     fontSize: 11,
-    color: COLORS.textSecondary,
+    color: COLORS.textMuted,
     fontWeight: '600',
     flex: 1,
     textAlign: 'center',
   },
-  asksList: {
+  asksContainer: {
+    flex: 1,
     maxHeight: 200,
   },
-  bidsList: {
+  bidsContainer: {
+    flex: 1,
     maxHeight: 200,
   },
   orderRow: {
@@ -237,9 +267,9 @@ const styles = StyleSheet.create({
   depthBar: {
     position: 'absolute',
     top: 0,
+    right: 0,
     bottom: 0,
-    left: 0,
-    opacity: 0.15,
+    opacity: 0.1,
   },
   bidDepthBar: {
     backgroundColor: COLORS.buyColor,
@@ -261,7 +291,7 @@ const styles = StyleSheet.create({
   },
   amountText: {
     fontSize: 13,
-    color: COLORS.text,
+    color: COLORS.textPrimary,
     flex: 1,
     textAlign: 'center',
   },
@@ -274,21 +304,32 @@ const styles = StyleSheet.create({
   spreadContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 12,
     backgroundColor: COLORS.background,
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: COLORS.backgroundTertiary,
   },
   spreadLabel: {
     fontSize: 12,
     color: COLORS.textSecondary,
+    fontWeight: '600',
   },
   spreadValue: {
     fontSize: 12,
-    color: COLORS.text,
+    color: COLORS.textPrimary,
     fontWeight: '600',
+  },
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 8,
+    color: COLORS.textSecondary,
+    fontSize: 14,
   },
   errorContainer: {
     flex: 1,
@@ -299,13 +340,27 @@ const styles = StyleSheet.create({
   errorText: {
     color: COLORS.error,
     fontSize: 14,
+    marginBottom: 12,
   },
-  emptyContainer: {
-    padding: 20,
+  retryButton: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  retryText: {
+    color: COLORS.background,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  emptySection: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
+    padding: 20,
   },
   emptyText: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
+    color: COLORS.textMuted,
+    fontSize: 13,
   },
 });

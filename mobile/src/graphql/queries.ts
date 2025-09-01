@@ -6,7 +6,7 @@ import { gql } from 'graphql-request';
 
 export const GET_ORDER_BOOK = gql`
   query GetOrderBook($bookId: String!) {
-    clobOrders(
+    cLOBOrders(
       where: { 
         bookId: $bookId, 
         status_in: ["ACTIVE", "PARTIALLY_FILLED"] 
@@ -29,7 +29,7 @@ export const GET_ORDER_BOOK = gql`
 
 export const GET_ORDER_BOOK_DEPTH = gql`
   query GetOrderBookDepth($bookId: String!, $limit: Int = 20) {
-    buyOrders: clobOrders(
+    buyOrders: cLOBOrders(
       where: { 
         bookId: $bookId, 
         orderType: "BUY",
@@ -46,7 +46,7 @@ export const GET_ORDER_BOOK_DEPTH = gql`
       }
     }
     
-    sellOrders: clobOrders(
+    sellOrders: cLOBOrders(
       where: { 
         bookId: $bookId, 
         orderType: "SELL",
@@ -71,10 +71,9 @@ export const GET_ORDER_BOOK_DEPTH = gql`
 
 export const GET_USER_ORDERS = gql`
   query GetUserOrders($user: String!, $status: String) {
-    clobOrders(
+    cLOBOrders(
       where: { 
         trader: $user
-        ${status ? ', status: $status' : ''}
       }
       orderBy: "timestamp"
       orderDirection: "desc"
@@ -97,7 +96,7 @@ export const GET_USER_ORDERS = gql`
 
 export const GET_USER_TRADES = gql`
   query GetUserTrades($user: String!, $limit: Int = 50) {
-    buyTrades: tradeV2s(
+    buyTrades: trades(
       where: { buyer: $user }
       orderBy: "timestamp"
       orderDirection: "desc"
@@ -114,7 +113,7 @@ export const GET_USER_TRADES = gql`
       }
     }
     
-    sellTrades: tradeV2s(
+    sellTrades: trades(
       where: { seller: $user }
       orderBy: "timestamp"
       orderDirection: "desc"
@@ -138,6 +137,7 @@ export const GET_USER_BALANCES = gql`
     userBalances(where: { user: $user }) {
       items {
         id
+        user
         token
         available
         locked
@@ -178,9 +178,7 @@ export const GET_USER_ACTIVITY = gql`
 
 export const GET_TRADING_BOOKS = gql`
   query GetTradingBooks($active: Boolean) {
-    tradingBooks(
-      where: { ${active !== undefined ? 'active: $active' : ''} }
-    ) {
+    tradingBooks {
       items {
         id
         baseToken
@@ -220,7 +218,7 @@ export const GET_MARKET_STATS = gql`
 
 export const GET_RECENT_TRADES = gql`
   query GetRecentTrades($bookId: String!, $limit: Int = 50) {
-    tradeV2s(
+    trades(
       where: { bookId: $bookId }
       orderBy: "timestamp"
       orderDirection: "desc"
@@ -247,7 +245,7 @@ export const GET_PRICE_HISTORY = gql`
     $fromTimestamp: Int!, 
     $toTimestamp: Int!
   ) {
-    tradeV2s(
+    trades(
       where: { 
         bookId: $bookId,
         timestamp_gte: $fromTimestamp,
@@ -280,7 +278,7 @@ export const GET_MARKET_OVERVIEW = gql`
       }
     }
     
-    recentTrades: tradeV2s(
+    recentTrades: trades(
       orderBy: "timestamp"
       orderDirection: "desc"
       limit: 10
@@ -315,7 +313,7 @@ export const GET_USER_DASHBOARD = gql`
       }
     }
     
-    activeOrders: clobOrders(
+    activeOrders: cLOBOrders(
       where: { 
         trader: $user,
         status_in: ["ACTIVE", "PARTIALLY_FILLED"]

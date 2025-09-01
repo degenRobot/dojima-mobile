@@ -50,6 +50,14 @@ export const NETWORK_CONFIG = {
   wsUrl: 'wss://testnet.riselabs.xyz/ws',
   explorerUrl: 'https://testnet-explorer.riselabs.xyz',
   portoRelayUrl: 'https://rise-testnet-porto.fly.dev',
+  indexerUrl: process.env.EXPO_PUBLIC_INDEXER_URL || 'http://localhost:42069', // Ponder GraphQL endpoint
+} as const;
+
+// Feature flags
+export const FEATURES = {
+  indexer: true, // Enable indexer integration
+  websocket: true, // WebSocket is now implemented
+  analytics: false, // Analytics not implemented yet
 } as const;
 
 // Trading books configuration for UnifiedCLOB

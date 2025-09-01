@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,8 +10,10 @@ import {
 } from 'react-native';
 import { usePorto } from '../../providers/SimplePortoProvider';
 import { useCLOBContract } from '../../hooks/useCLOBContract';
+import { usePortfolio } from '../../hooks/usePortfolio';
 import { COLORS, ORDER_TYPES, ORDER_SIDES } from '../../config/constants';
 import { logInfo, logError, logDebug } from '../../utils/logger';
+import { formatUnits } from 'viem';
 
 interface OrderFormProps {
   pair: {
@@ -25,6 +27,7 @@ interface OrderFormProps {
 export function OrderForm({ pair }: OrderFormProps) {
   const { delegationStatus, isInitialized } = usePorto();
   const { placeOrder, placeMarketOrder, loading } = useCLOBContract();
+  const { portfolio, getTokenInfo } = usePortfolio();
   
   const [orderSide, setOrderSide] = useState<'buy' | 'sell'>('buy');
   const [orderType, setOrderType] = useState<'market' | 'limit'>('limit');
@@ -33,6 +36,40 @@ export function OrderForm({ pair }: OrderFormProps) {
   const [total, setTotal] = useState('0.00');
   const [slippage, setSlippage] = useState('1'); // Default 1% slippage
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedPercentage, setSelectedPercentage] = useState<number | null>(null);
+  
+  // Calculate available balance based on order side - using same data source as Portfolio
+  const availableBalance = useMemo(() => {
+    if (!portfolio || !pair) return '0';
+    const tokenSymbol = orderSide === 'buy' ? pair.quote : pair.base;
+    const tokenInfo = getTokenInfo(tokenSymbol);
+    
+    // Use CLOB available balance (not locked)
+    return tokenInfo?.clobBalance || '0';
+  }, [portfolio, pair, orderSide, getTokenInfo]);
+  
+  // Handle percentage selection
+  const handlePercentageClick = (percentage: number) => {
+    setSelectedPercentage(percentage);
+    const balanceValue = parseFloat(availableBalance);
+    
+    if (orderSide === 'buy') {
+      if (orderType === 'limit' && price) {
+        // For buy limit orders, calculate how much base token we can buy with our quote balance
+        const priceValue = parseFloat(price);
+        const maxAmount = (balanceValue / priceValue * percentage / 100).toFixed(6);
+        setAmount(maxAmount);
+      } else if (orderType === 'market') {
+        // For market buy orders, amount is quote token to spend
+        const newAmount = (balanceValue * percentage / 100).toFixed(2);
+        setAmount(newAmount);
+      }
+    } else {
+      // For sell orders (both limit and market), use base token balance
+      const newAmount = (balanceValue * percentage / 100).toFixed(6);
+      setAmount(newAmount);
+    }
+  };
 
   // Log component mount
   React.useEffect(() => {
@@ -57,8 +94,12 @@ export function OrderForm({ pair }: OrderFormProps) {
           setTotal('0.00');
         }
       } else if (orderType === 'market' && amount) {
-        // For market orders, show estimated total
-        setTotal('~' + amount + ' @ Market Price');
+        // For market orders, show different message based on order side
+        if (orderSide === 'buy') {
+          setTotal('Spending ' + amount + ' ' + (pair?.quote || 'USD'));
+        } else {
+          setTotal('Selling ' + amount + ' ' + (pair?.base || 'TOKEN'));
+        }
       } else {
         setTotal('0.00');
       }
@@ -92,6 +133,36 @@ export function OrderForm({ pair }: OrderFormProps) {
         return;
       }
 
+      // Check if user has sufficient CLOB balance
+      const availableNum = parseFloat(availableBalance);
+      if (orderSide === 'sell') {
+        // For sell orders, check base token balance
+        if (amountNum > availableNum) {
+          Alert.alert('Insufficient Balance', 
+            `You only have ${availableBalance} ${pair?.base || 'TOKEN'} available in CLOB. Please deposit more funds first.`);
+          return;
+        }
+      } else if (orderSide === 'buy') {
+        // For buy orders, check quote token balance
+        if (orderType === 'limit' && price) {
+          // For limit orders, calculate exact required amount
+          const requiredQuote = amountNum * parseFloat(price);
+          if (requiredQuote > availableNum) {
+            Alert.alert('Insufficient Balance', 
+              `You need ${requiredQuote.toFixed(2)} ${pair?.quote || 'USD'} but only have ${availableBalance} available in CLOB. Please deposit more funds first.`);
+            return;
+          }
+        } else if (orderType === 'market') {
+          // For market buy orders, amount represents how much quote token to spend
+          // The user enters the amount of quote token they want to spend
+          if (amountNum > availableNum) {
+            Alert.alert('Insufficient Balance', 
+              `You only have ${availableBalance} ${pair?.quote || 'USD'} available in CLOB. Please deposit more funds first.`);
+            return;
+          }
+        }
+      }
+
       // For limit orders, also validate price
       if (orderType === 'limit') {
         if (!price) {
@@ -114,17 +185,30 @@ export function OrderForm({ pair }: OrderFormProps) {
       if (orderType === 'market') {
         // Place market order with slippage protection
         const slippageBps = Math.round(parseFloat(slippage || '1') * 100); // Convert percentage to basis points
+        
+        // For market orders:
+        // - Buy: amount is in quote token (USDC) - need to convert to base token estimate
+        // - Sell: amount is already in base token
+        let marketOrderAmount = amount;
+        if (orderSide === 'buy') {
+          // Convert USDC amount to estimated base token amount
+          // This is a rough estimate - the actual amount will be determined by the contract
+          const estimatedPrice = pair?.base === 'WBTC' ? 65000 : pair?.base === 'WETH' ? 2500 : 1;
+          marketOrderAmount = (amountNum / estimatedPrice).toFixed(8);
+        }
+        
         logInfo('OrderForm', 'Submitting market order', {
           bookId,
           side: orderSide,
-          amount: amountNum,
+          originalAmount: amount,
+          marketOrderAmount,
           slippageBps,
         });
         
         result = await placeMarketOrder(
           bookId,
           orderSide === 'buy',
-          amount,
+          marketOrderAmount,
           slippageBps
         );
       } else {
@@ -237,14 +321,48 @@ export function OrderForm({ pair }: OrderFormProps) {
         </View>
       )}
 
-      {/* Amount Input */}
+      {/* Amount Input with Balance and Percentage Selector */}
       <View style={styles.inputContainer}>
-        <Text style={styles.inputLabel}>Amount ({pair?.base || 'TOKEN'})</Text>
+        <View style={styles.inputHeader}>
+          <Text style={styles.inputLabel}>
+            Amount ({orderType === 'market' && orderSide === 'buy' ? pair?.quote || 'USD' : pair?.base || 'TOKEN'})
+          </Text>
+          <Text style={styles.balanceLabel}>
+            CLOB Balance: {parseFloat(availableBalance).toFixed(4)} {orderSide === 'buy' ? pair?.quote : pair?.base}
+          </Text>
+        </View>
+        
+        {/* Percentage Selector */}
+        <View style={styles.percentageSelector}>
+          {[25, 50, 75, 100].map(pct => (
+            <TouchableOpacity
+              key={pct}
+              style={[
+                styles.percentageButton,
+                selectedPercentage === pct && styles.percentageButtonActive
+              ]}
+              onPress={() => handlePercentageClick(pct)}
+            >
+              <Text style={[
+                styles.percentageButtonText,
+                selectedPercentage === pct && styles.percentageButtonTextActive
+              ]}>
+                {pct === 100 ? 'MAX' : `${pct}%`}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        
         <TextInput
           style={styles.input}
           value={amount}
-          onChangeText={setAmount}
-          placeholder="0.00"
+          onChangeText={(text) => {
+            setAmount(text);
+            setSelectedPercentage(null);
+          }}
+          placeholder={orderType === 'market' && orderSide === 'buy' ? 
+            `Enter ${pair?.quote || 'USD'} amount to spend` : 
+            `Enter ${pair?.base || 'TOKEN'} amount`}
           placeholderTextColor={COLORS.textSecondary}
           keyboardType="decimal-pad"
         />
@@ -420,5 +538,40 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.warning,
     textAlign: 'center',
+  },
+  inputHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  balanceLabel: {
+    fontSize: 11,
+    color: COLORS.primary,
+  },
+  percentageSelector: {
+    flexDirection: 'row',
+    marginBottom: 8,
+    gap: 6,
+  },
+  percentageButton: {
+    flex: 1,
+    paddingVertical: 6,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+  },
+  percentageButtonActive: {
+    backgroundColor: COLORS.primary + '20',
+    borderColor: COLORS.primary,
+  },
+  percentageButtonText: {
+    color: COLORS.textSecondary,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  percentageButtonTextActive: {
+    color: COLORS.primary,
   },
 });
