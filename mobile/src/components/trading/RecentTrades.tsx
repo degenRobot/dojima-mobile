@@ -48,14 +48,16 @@ export function RecentTrades({ pair }: RecentTradesProps) {
   const trades = useMemo(() => {
     if (useRealData && indexerData) {
       const data = indexerData as any;
+      // Handle GraphQL response structure
+      const tradesList = data.trades?.items || data.items || [];
       // Process real trades from indexer
-      return (data.items || []).map((trade: any) => ({
+      return tradesList.map((trade: any) => ({
         id: trade.id,
         price: formatUnits(BigInt(trade.price || '0'), CONTRACTS.USDC.decimals),
         amount: formatUnits(BigInt(trade.amount || '0'), 18),
         time: new Date((trade.timestamp || 0) * 1000).toLocaleTimeString(),
         // Simple heuristic: if buyer address is lower than seller, it's a buy, otherwise sell
-        side: (trade.buyer?.toLowerCase() || '') < (trade.seller?.toLowerCase() || '') ? 'buy' : 'sell' as 'buy' | 'sell',
+        side: (trade.buyer?.address?.toLowerCase() || '') < (trade.seller?.address?.toLowerCase() || '') ? 'buy' : 'sell' as 'buy' | 'sell',
       }));
     }
     

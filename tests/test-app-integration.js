@@ -1,7 +1,7 @@
 import { createPublicClient, http, parseUnits, formatUnits } from 'viem';
 
 const RPC_URL = 'https://indexing.testnet.riselabs.xyz';
-const INDEXER_URL = 'http://192.168.0.194:42069';
+const INDEXER_URL = 'http://localhost:42069/graphql';
 const CHAIN_ID = 11155931;
 
 const publicClient = createPublicClient({

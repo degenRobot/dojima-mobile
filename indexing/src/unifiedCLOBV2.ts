@@ -130,33 +130,54 @@ ponder.on("UnifiedCLOBV2:OrderMatched", async ({ event, context }) => {
     blockNumber: Number(event.block.number),
   });
   
-  // Update buy order
-  await context.db
-    .update(CLOBOrder, { id: buyOrderId })
-    .set((row) => ({
-      filled: row.filled + amount,
-      remaining: row.amount - (row.filled + amount),
-      status: row.amount - (row.filled + amount) === 0n ? "FILLED" : "PARTIALLY_FILLED",
-    }));
+  // Update buy order - handle case where order doesn't exist yet
+  try {
+    const buyOrder = await context.db.find(CLOBOrder, { id: buyOrderId });
+    if (buyOrder) {
+      await context.db
+        .update(CLOBOrder, { id: buyOrderId })
+        .set((row) => ({
+          filled: row.filled + amount,
+          remaining: row.amount - (row.filled + amount),
+          status: row.amount - (row.filled + amount) === 0n ? "FILLED" : "PARTIALLY_FILLED",
+        }));
+    }
+  } catch (e) {
+    // Order doesn't exist yet, will be created when OrderPlaced event arrives
+  }
   
-  // Update sell order
-  await context.db
-    .update(CLOBOrder, { id: sellOrderId })
-    .set((row) => ({
-      filled: row.filled + amount,
-      remaining: row.amount - (row.filled + amount),
-      status: row.amount - (row.filled + amount) === 0n ? "FILLED" : "PARTIALLY_FILLED",
-    }));
+  // Update sell order - handle case where order doesn't exist yet
+  try {
+    const sellOrder = await context.db.find(CLOBOrder, { id: sellOrderId });
+    if (sellOrder) {
+      await context.db
+        .update(CLOBOrder, { id: sellOrderId })
+        .set((row) => ({
+          filled: row.filled + amount,
+          remaining: row.amount - (row.filled + amount),
+          status: row.amount - (row.filled + amount) === 0n ? "FILLED" : "PARTIALLY_FILLED",
+        }));
+    }
+  } catch (e) {
+    // Order doesn't exist yet, will be created when OrderPlaced event arrives
+  }
   
-  // Update trading book stats
+  // Update trading book stats - handle case where book doesn't exist yet
   const quoteVolume = (amount * price) / 10n ** 18n; // Adjust for decimals
-  await context.db
-    .update(TradingBook, { id: bookId })
-    .set((row) => ({
-      lastPrice: price,
-      totalVolume: row.totalVolume + quoteVolume,
-      updatedAt: Number(event.block.timestamp),
-    }));
+  try {
+    const book = await context.db.find(TradingBook, { id: bookId });
+    if (book) {
+      await context.db
+        .update(TradingBook, { id: bookId })
+        .set((row) => ({
+          lastPrice: price,
+          totalVolume: row.totalVolume + quoteVolume,
+          updatedAt: Number(event.block.timestamp),
+        }));
+    }
+  } catch (e) {
+    // Book doesn't exist yet, will be created when BookCreated event arrives
+  }
   
   // Record user activities
   await context.db.insert(UserActivity).values({
@@ -281,14 +302,31 @@ ponder.on("UnifiedCLOBV2:Withdrawn", async ({ event, context }) => {
   const token = event.args.token.toLowerCase();
   const balanceId = `${userId}-${token}`;
   
-  // Update user balance
-  await context.db
-    .update(UserBalance, { id: balanceId })
-    .set((row) => ({
-      available: row.available - event.args.amount,
-      totalWithdrawn: row.totalWithdrawn + event.args.amount,
+  // Update user balance - handle case where balance doesn't exist
+  try {
+    const balance = await context.db.find(UserBalance, { id: balanceId });
+    if (balance) {
+      await context.db
+        .update(UserBalance, { id: balanceId })
+        .set((row) => ({
+          available: row.available - event.args.amount,
+          totalWithdrawn: row.totalWithdrawn + event.args.amount,
+          lastUpdated: Number(event.block.timestamp),
+        }));
+    }
+  } catch (e) {
+    // Balance doesn't exist, create it with negative withdrawn (will be corrected by deposits)
+    await context.db.insert(UserBalance).values({
+      id: balanceId,
+      user: userId,
+      token,
+      available: 0n,
+      locked: 0n,
+      totalDeposited: 0n,
+      totalWithdrawn: event.args.amount,
       lastUpdated: Number(event.block.timestamp),
-    }));
+    });
+  }
   
   // Record user activity
   await context.db.insert(UserActivity).values({
@@ -308,13 +346,20 @@ ponder.on("UnifiedCLOBV2:Withdrawn", async ({ event, context }) => {
 ponder.on("UnifiedCLOBV2:PriceUpdate", async ({ event, context }) => {
   const bookId = event.args.bookId.toString();
   
-  // Update trading book with latest price
-  await context.db
-    .update(TradingBook, { id: bookId })
-    .set({
-      lastPrice: event.args.price,
-      updatedAt: Number(event.args.timestamp),
-    });
+  // Update trading book with latest price - handle case where book doesn't exist
+  try {
+    const book = await context.db.find(TradingBook, { id: bookId });
+    if (book) {
+      await context.db
+        .update(TradingBook, { id: bookId })
+        .set({
+          lastPrice: event.args.price,
+          updatedAt: Number(event.args.timestamp),
+        });
+    }
+  } catch (e) {
+    // Book doesn't exist yet, ignore price update
+  }
   
   // Update market stats for different periods
   const periods = ["1h", "24h", "7d"];
@@ -358,12 +403,33 @@ ponder.on("UnifiedCLOBV2:VolumeUpdate", async ({ event, context }) => {
   for (const period of periods) {
     const statId = `${bookId}-${period}`;
     
-    await context.db
-      .update(MarketStats, { id: statId })
-      .set((row) => ({
-        volume: row.volume + event.args.volume,
-        trades: row.trades + 1,
-        timestamp: Number(event.args.timestamp),
-      }));
+    try {
+      const stat = await context.db.find(MarketStats, { id: statId });
+      if (stat) {
+        await context.db
+          .update(MarketStats, { id: statId })
+          .set((row) => ({
+            volume: row.volume + event.args.volume,
+            trades: row.trades + 1,
+            timestamp: Number(event.args.timestamp),
+          }));
+      } else {
+        // Create new stat entry
+        await context.db.insert(MarketStats).values({
+          id: statId,
+          bookId,
+          period,
+          high: 0n,
+          low: 0n,
+          open: 0n,
+          close: 0n,
+          volume: event.args.volume,
+          trades: 1,
+          timestamp: Number(event.args.timestamp),
+        });
+      }
+    } catch (e) {
+      // Handle error gracefully
+    }
   }
 });

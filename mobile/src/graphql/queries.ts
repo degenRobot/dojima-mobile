@@ -14,7 +14,9 @@ export const GET_ORDER_BOOK = gql`
     ) {
       items {
         id
-        trader
+        trader {
+          address
+        }
         orderType
         price
         amount
@@ -226,8 +228,12 @@ export const GET_RECENT_TRADES = gql`
     ) {
       items {
         id
-        buyer
-        seller
+        buyer {
+          address
+        }
+        seller {
+          address
+        }
         price
         amount
         buyerFee
@@ -352,7 +358,9 @@ export const GET_USER_DASHBOARD = gql`
 export const ORDER_FRAGMENT = gql`
   fragment OrderFields on CLOBOrder {
     id
-    trader
+    trader {
+      address
+    }
     bookId
     orderType
     price
@@ -368,8 +376,12 @@ export const TRADE_FRAGMENT = gql`
   fragment TradeFields on Trade {
     id
     bookId
-    buyer
-    seller
+    buyer {
+      address
+    }
+    seller {
+      address
+    }
     price
     amount
     buyerFee

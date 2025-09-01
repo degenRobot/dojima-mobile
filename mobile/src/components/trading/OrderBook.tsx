@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,8 +8,7 @@ import {
 } from 'react-native';
 import { COLORS, UI_CONFIG } from '../../config/constants';
 import { logDebug, logError, logInfo } from '../../utils/logger';
-import { useOrderBook, isIndexerAvailable } from '../../hooks/useIndexer';
-import { useOrderBookFromContract } from '../../hooks/useOrderBookFromContract';
+import { useOrderBook } from '../../hooks/useIndexer';
 import { formatUnits } from 'viem';
 import { CONTRACTS } from '../../config/contracts';
 
@@ -23,6 +22,7 @@ interface OrderBookProps {
 }
 
 interface OrderLevel {
+  id: string;
   price: string;
   amount: string;
   total: string;
@@ -33,67 +33,36 @@ export function OrderBook({ pair }: OrderBookProps) {
   // Get book ID
   const bookId = pair?.id || 1;
   
-  // Use real data from contract
-  const { 
-    orderBook: contractOrderBook, 
-    loading: contractLoading, 
-    error: contractError, 
-    refetch 
-  } = useOrderBookFromContract(bookId);
-  
-  // Fallback: Use indexer data if available
-  const { data: indexerData, isLoading: indexerLoading } = useOrderBook(bookId.toString());
+  // Primary source: Use indexer data
+  const { data: indexerData, isLoading: indexerLoading, refetch } = useOrderBook(bookId.toString());
   
   // Log data source
   useEffect(() => {
-    if (contractOrderBook.buyOrders.length > 0 || contractOrderBook.sellOrders.length > 0) {
-      logInfo('OrderBook', 'Using real contract data', {
+    if (indexerData) {
+      const data = indexerData as any;
+      const buyOrdersList = data.buyOrders?.items || data.buyOrders || [];
+      const sellOrdersList = data.sellOrders?.items || data.sellOrders || [];
+      logInfo('OrderBook', 'Using indexer data', {
         bookId,
-        buys: contractOrderBook.buyOrders.length,
-        sells: contractOrderBook.sellOrders.length,
+        buys: buyOrdersList.length,
+        sells: sellOrdersList.length,
       });
-    } else if (indexerData && !contractLoading) {
-      logDebug('OrderBook', 'Using indexer data as fallback');
-    } else if (!contractLoading && !indexerLoading) {
+    } else if (!indexerLoading) {
       logDebug('OrderBook', 'No order book data available');
     }
-  }, [contractOrderBook, indexerData, contractLoading, indexerLoading, bookId]);
+  }, [indexerData, indexerLoading, bookId]);
 
-  // Process data: prefer contract data, then indexer
+  // Process data from indexer
   const { bids, asks, spread, spreadPercent } = useMemo(() => {
-    // First try: Use contract data if available
-    if (contractOrderBook.buyOrders.length > 0 || contractOrderBook.sellOrders.length > 0) {
-      const maxBidAmount = Math.max(...contractOrderBook.buyOrders.map(o => parseFloat(o.total || '0')), 1);
-      const maxAskAmount = Math.max(...contractOrderBook.sellOrders.map(o => parseFloat(o.total || '0')), 1);
-      
-      const processedBids = contractOrderBook.buyOrders.map((order) => ({
-        ...order,
-        percentage: (parseFloat(order.total || '0') / maxBidAmount) * 100,
-      }));
-      
-      const processedAsks = contractOrderBook.sellOrders.map((order) => ({
-        ...order,
-        percentage: (parseFloat(order.total || '0') / maxAskAmount) * 100,
-      }));
-      
-      const bestBid = processedBids[0]?.price || '0';
-      const bestAsk = processedAsks[0]?.price || '0';
-      const spreadValue = parseFloat(contractOrderBook.spread);
-      const spreadPct = bestBid && bestAsk && parseFloat(bestBid) > 0 ? 
-        ((spreadValue / parseFloat(bestBid)) * 100).toFixed(2) : '0.00';
-      
-      return {
-        bids: processedBids.slice(0, 10),
-        asks: processedAsks.slice(0, 10),
-        spread: contractOrderBook.spread,
-        spreadPercent: spreadPct,
-      };
-    }
-    
-    // Second try: Use indexer data if available
-    if (isIndexerAvailable() && indexerData) {
+    // Use indexer data if available
+    if (indexerData) {
       const data = indexerData as any;
-      const processedBids = (data.buyOrders || []).map((order: any) => ({
+      // Handle GraphQL response structure with items array
+      const buyOrdersList = data.buyOrders?.items || data.buyOrders || [];
+      const sellOrdersList = data.sellOrders?.items || data.sellOrders || [];
+      
+      const processedBids = buyOrdersList.map((order: any, index: number) => ({
+        id: order.id || `bid-${index}`,
         price: formatUnits(BigInt(order.price || '0'), CONTRACTS.USDC.decimals),
         amount: formatUnits(BigInt(order.remaining || '0'), 18),
         total: (parseFloat(formatUnits(BigInt(order.price || '0'), CONTRACTS.USDC.decimals)) * 
@@ -101,7 +70,8 @@ export function OrderBook({ pair }: OrderBookProps) {
         percentage: 50, // Default percentage
       }));
       
-      const processedAsks = (data.sellOrders || []).map((order: any) => ({
+      const processedAsks = sellOrdersList.map((order: any, index: number) => ({
+        id: order.id || `ask-${index}`,
         price: formatUnits(BigInt(order.price || '0'), CONTRACTS.USDC.decimals),
         amount: formatUnits(BigInt(order.remaining || '0'), 18),
         total: (parseFloat(formatUnits(BigInt(order.price || '0'), CONTRACTS.USDC.decimals)) * 
@@ -130,11 +100,15 @@ export function OrderBook({ pair }: OrderBookProps) {
       spread: '0',
       spreadPercent: '0.00',
     };
-  }, [contractOrderBook, indexerData]);
+  }, [indexerData]);
 
-  const renderOrderLevel = (item: OrderLevel, type: 'bid' | 'ask') => {
+  const renderOrderLevel = useCallback((item: OrderLevel, type: 'bid' | 'ask') => {
     return (
-      <TouchableOpacity style={styles.orderRow} activeOpacity={0.7} key={`${type}-${item.price}`}>
+      <TouchableOpacity 
+        key={`${type}-${item.id}`}
+        style={styles.orderRow} 
+        activeOpacity={0.7}
+      >
         <View style={[
           styles.depthBar,
           type === 'bid' ? styles.bidDepthBar : styles.askDepthBar,
@@ -150,28 +124,16 @@ export function OrderBook({ pair }: OrderBookProps) {
         <Text style={styles.totalText}>{item.total}</Text>
       </TouchableOpacity>
     );
-  };
+  }, []);
 
   // Loading state
-  const isLoading = contractLoading && !contractOrderBook.buyOrders.length && !indexerData;
+  const isLoading = indexerLoading && !indexerData;
   
   if (isLoading) {
     return (
       <View style={[styles.container, styles.loadingContainer]}>
         <ActivityIndicator size="large" color={COLORS.primary} />
         <Text style={styles.loadingText}>Loading order book...</Text>
-      </View>
-    );
-  }
-  
-  // Error state (only if no fallback data)
-  if (contractError && !indexerData && bids.length === 0 && asks.length === 0) {
-    return (
-      <View style={[styles.container, styles.errorContainer]}>
-        <Text style={styles.errorText}>Failed to load order book</Text>
-        <TouchableOpacity onPress={refetch} style={styles.retryButton}>
-          <Text style={styles.retryText}>Retry</Text>
-        </TouchableOpacity>
       </View>
     );
   }
@@ -199,7 +161,7 @@ export function OrderBook({ pair }: OrderBookProps) {
       {/* Sell Orders (Asks) */}
       <View style={styles.asksContainer}>
         {asks.length > 0 ? (
-          [...asks].reverse().map(ask => renderOrderLevel(ask, 'ask'))
+          asks.slice().reverse().map(ask => renderOrderLevel(ask, 'ask'))
         ) : (
           <View style={styles.emptySection}>
             <Text style={styles.emptyText}>No sell orders</Text>
@@ -218,7 +180,7 @@ export function OrderBook({ pair }: OrderBookProps) {
       {/* Buy Orders (Bids) */}
       <View style={styles.bidsContainer}>
         {bids.length > 0 ? (
-          bids.map(bid => renderOrderLevel(bid, 'bid'))
+          bids.map((bid: OrderLevel) => renderOrderLevel(bid, 'bid'))
         ) : (
           <View style={styles.emptySection}>
             <Text style={styles.emptyText}>No buy orders</Text>
@@ -250,11 +212,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   asksContainer: {
-    flex: 1,
     maxHeight: 200,
   },
   bidsContainer: {
-    flex: 1,
     maxHeight: 200,
   },
   orderRow: {

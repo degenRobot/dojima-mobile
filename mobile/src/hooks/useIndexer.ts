@@ -52,8 +52,9 @@ export function useIndexerQuery<T = any>(
     },
     enabled: FEATURES.indexer, // Always enabled if feature is on
     retry: false, // We handle retries ourselves
-    staleTime: 5000, // Consider data stale after 5 seconds
-    cacheTime: 60000, // Keep cache for 1 minute
+    staleTime: 30000, // Consider data stale after 30 seconds
+    cacheTime: 300000, // Keep cache for 5 minutes
+    refetchInterval: false, // Don't auto-refetch
     ...options,
   });
 }
@@ -65,7 +66,7 @@ export function useOrderBook(bookId: string) {
     queries.GET_ORDER_BOOK_DEPTH,
     { bookId, limit: 20 },
     {},
-    { buyOrders: [], sellOrders: [] } // Default empty order book
+    { buyOrders: { items: [] }, sellOrders: { items: [] } } // Default empty order book with GraphQL structure
   );
 }
 
@@ -75,7 +76,7 @@ export function useUserOrders(userAddress?: string) {
     queries.GET_USER_ORDERS,
     { user: userAddress },
     { enabled: !!userAddress },
-    { orders: [] } // Default empty orders
+    { cLOBOrders: { items: [] } } // Default empty orders with GraphQL structure
   );
 }
 
@@ -85,7 +86,7 @@ export function useUserBalances(userAddress?: string) {
     queries.GET_USER_BALANCES,
     { user: userAddress },
     { enabled: !!userAddress },
-    { balances: [] } // Default empty balances
+    { userBalances: { items: [] } } // Default empty balances with GraphQL structure
   );
 }
 
@@ -95,7 +96,7 @@ export function useTradingBooks() {
     queries.GET_TRADING_BOOKS,
     { active: true },
     {},
-    { books: [] } // Default empty books
+    { tradingBooks: { items: [] } } // Default empty books with GraphQL structure
   );
 }
 
@@ -105,7 +106,7 @@ export function useRecentTrades(bookId: string, limit = 50) {
     queries.GET_RECENT_TRADES,
     { bookId, limit },
     {},
-    { trades: [] } // Default empty trades
+    { trades: { items: [] } } // Default empty trades with GraphQL structure
   );
 }
 
@@ -124,7 +125,7 @@ export function useUserDashboard(userAddress?: string) {
     { user: userAddress },
     { 
       enabled: !!userAddress && !!client,
-      refetchInterval: 10000, // Refresh every 10 seconds
+      refetchInterval: false, // Disable auto-refresh to prevent freezing
     }
   );
 }

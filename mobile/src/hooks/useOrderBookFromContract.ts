@@ -89,13 +89,40 @@ export function useOrderBookFromContract(bookId: number) {
       logDebug('useOrderBookFromContract', 'Fetching order book', { bookId });
 
       // Fetch buy and sell order IDs
-      const [buyOrderIds] = await readContract('buyOrders', [bookId, 0]) as [bigint[]];
-      const [sellOrderIds] = await readContract('sellOrders', [bookId, 0]) as [bigint[]];
+      const buyOrderIdsResult = await readContract('buyOrders', [bookId, 0]);
+      const sellOrderIdsResult = await readContract('sellOrders', [bookId, 0]);
+      
+      logDebug('useOrderBookFromContract', 'Raw order IDs response', {
+        buyOrderIdsResult,
+        sellOrderIdsResult,
+        buyType: typeof buyOrderIdsResult,
+        sellType: typeof sellOrderIdsResult,
+        buyIsArray: Array.isArray(buyOrderIdsResult),
+        sellIsArray: Array.isArray(sellOrderIdsResult)
+      });
+      
+      // Handle the response format - could be an array or wrapped in an object
+      const buyOrderIds = Array.isArray(buyOrderIdsResult) 
+        ? (Array.isArray(buyOrderIdsResult[0]) ? buyOrderIdsResult[0] : buyOrderIdsResult)
+        : [];
+      const sellOrderIds = Array.isArray(sellOrderIdsResult)
+        ? (Array.isArray(sellOrderIdsResult[0]) ? sellOrderIdsResult[0] : sellOrderIdsResult)
+        : [];
+      
+      // Ensure we have arrays
+      if (!Array.isArray(buyOrderIds) || !Array.isArray(sellOrderIds)) {
+        logError('useOrderBookFromContract', 'Invalid order IDs format', { 
+          buyOrderIds, 
+          sellOrderIds 
+        });
+        return;
+      }
 
       // Fetch order details for each order
       const buyOrderPromises = buyOrderIds.slice(0, 20).map(async (orderId) => {
         try {
-          const [order] = await readContract('orders', [bookId, orderId]) as any[];
+          const orderResult = await readContract('orders', [bookId, orderId]);
+          const order = Array.isArray(orderResult) ? orderResult[0] : orderResult;
           if (!order || order.status !== 0) return null; // Only active orders
           
           const price = formatUnits(order.price, quoteDecimals);
@@ -117,7 +144,8 @@ export function useOrderBookFromContract(bookId: number) {
 
       const sellOrderPromises = sellOrderIds.slice(0, 20).map(async (orderId) => {
         try {
-          const [order] = await readContract('orders', [bookId, orderId]) as any[];
+          const orderResult = await readContract('orders', [bookId, orderId]);
+          const order = Array.isArray(orderResult) ? orderResult[0] : orderResult;
           if (!order || order.status !== 0) return null; // Only active orders
           
           const price = formatUnits(order.price, quoteDecimals);
