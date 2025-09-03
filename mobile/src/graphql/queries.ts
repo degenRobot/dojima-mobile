@@ -72,7 +72,7 @@ export const GET_ORDER_BOOK_DEPTH = gql`
 // ============================================
 
 export const GET_USER_ORDERS = gql`
-  query GetUserOrders($user: String!, $status: String) {
+  query GetUserOrders($user: String!) {
     cLOBOrders(
       where: { 
         trader: $user
@@ -153,7 +153,7 @@ export const GET_USER_BALANCES = gql`
 
 export const GET_USER_ACTIVITY = gql`
   query GetUserActivity($user: String!, $limit: Int = 100) {
-    userActivities(
+    userActivitys(
       where: { user: $user }
       orderBy: "timestamp"
       orderDirection: "desc"

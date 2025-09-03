@@ -84,7 +84,7 @@ export function SetupScreen() {
         }, 2000); // Give user a moment to see the success screen
       } else {
         // Even if minting failed, delegation might be set up
-        logWarn('SetupScreen', 'Minting had errors but delegation may be setup');
+        logDebug('SetupScreen', 'Minting had errors but delegation may be setup');
         setCurrentStep('complete');
         // Still mark as complete but with warning
         setTimeout(() => {

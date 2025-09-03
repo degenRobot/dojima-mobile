@@ -311,7 +311,6 @@ export function useCLOBContract() {
    * Cancel an order
    */
   const cancelOrder = useCallback(async (
-    bookId: number,
     orderId: bigint
   ): Promise<TransactionResult> => {
     if (!userAddress) {
@@ -324,10 +323,10 @@ export function useCLOBContract() {
       const data = encodeFunctionData({
         abi: UnifiedCLOBV2ABI,
         functionName: 'cancelOrder',
-        args: [bookId, orderId],
+        args: [orderId],
       });
 
-      console.log(`Canceling order ${orderId} on book ${bookId}...`);
+      console.log(`Canceling order ${orderId}...`);
       const result = await executeTransaction(CONTRACTS.UnifiedCLOB.address, data);
       
       return { 

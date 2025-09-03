@@ -14,6 +14,7 @@ import { OrderBook } from '../components/trading/OrderBook';
 import { OrderForm } from '../components/trading/OrderForm';
 import { RecentTrades } from '../components/trading/RecentTrades';
 import { PairSelector } from '../components/trading/PairSelector';
+import { SimpleSwapWidget } from '../components/trading/SimpleSwapWidget';
 import { COLORS } from '../config/constants';
 import { TRADING_BOOKS } from '../config/contracts';
 import { logDebug, logInfo } from '../utils/logger';
@@ -25,6 +26,7 @@ export function TradingScreen() {
   const [selectedPair, setSelectedPair] = useState<TradingPair>(TRADING_BOOKS[0] as TradingPair);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'book' | 'trades'>('book');
+  const [tradingMode, setTradingMode] = useState<'simple' | 'advanced'>('simple');
   
   // Log state on mount
   useEffect(() => {
@@ -53,12 +55,24 @@ export function TradingScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Pair Selector */}
-      <View style={styles.pairSelectorContainer}>
-        <PairSelector 
-          selectedPair={selectedPair} 
-          onSelectPair={setSelectedPair}
-        />
+      {/* Trading Mode Selector */}
+      <View style={styles.modeSelector}>
+        <TouchableOpacity
+          style={[styles.modeButton, tradingMode === 'simple' && styles.modeButtonActive]}
+          onPress={() => setTradingMode('simple')}
+        >
+          <Text style={[styles.modeButtonText, tradingMode === 'simple' && styles.modeButtonTextActive]}>
+            Simple
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.modeButton, tradingMode === 'advanced' && styles.modeButtonActive]}
+          onPress={() => setTradingMode('advanced')}
+        >
+          <Text style={[styles.modeButtonText, tradingMode === 'advanced' && styles.modeButtonTextActive]}>
+            Advanced
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Status Bar */}
@@ -74,50 +88,86 @@ export function TradingScreen() {
         )}
       </View>
 
-      <ScrollView
-        style={styles.scrollView}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={COLORS.primary}
-          />
-        }
-      >
-        {/* Order Form */}
-        <View style={styles.orderFormContainer}>
-          <OrderForm pair={selectedPair} />
-        </View>
+      {/* Simple Mode - Swap Widget */}
+      {tradingMode === 'simple' ? (
+        <ScrollView
+          style={styles.scrollView}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={COLORS.primary}
+            />
+          }
+        >
+          <SimpleSwapWidget />
+          
+          {/* Quick Info */}
+          <View style={styles.infoCard}>
+            <Text style={styles.infoTitle}>How it works</Text>
+            <Text style={styles.infoText}>• Market orders execute immediately at the best available price</Text>
+            <Text style={styles.infoText}>• Slippage protection prevents unfavorable price movements</Text>
+            <Text style={styles.infoText}>• All trades are gasless through Porto Protocol</Text>
+            <Text style={styles.infoText}>• 0.2% fee for market orders (taker fee)</Text>
+          </View>
+        </ScrollView>
+      ) : (
+        /* Advanced Mode - Full Trading Interface */
+        <>
+          {/* Pair Selector */}
+          <View style={styles.pairSelectorContainer}>
+            <PairSelector 
+              selectedPair={selectedPair} 
+              onSelectPair={setSelectedPair}
+            />
+          </View>
 
-        {/* Market Data Tabs */}
-        <View style={styles.tabContainer}>
-          <TouchableOpacity 
-            style={[styles.tab, activeTab === 'book' && styles.tabActive]}
-            onPress={() => setActiveTab('book')}
+          <ScrollView
+            style={styles.scrollView}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={COLORS.primary}
+              />
+            }
           >
-            <Text style={[styles.tabText, activeTab === 'book' && styles.tabTextActive]}>
-              Order Book
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.tab, activeTab === 'trades' && styles.tabActive]}
-            onPress={() => setActiveTab('trades')}
-          >
-            <Text style={[styles.tabText, activeTab === 'trades' && styles.tabTextActive]}>
-              Recent Trades
-            </Text>
-          </TouchableOpacity>
-        </View>
+            {/* Order Form */}
+            <View style={styles.orderFormContainer}>
+              <OrderForm pair={selectedPair} />
+            </View>
 
-        {/* Tab Content */}
-        <View style={styles.tabContent}>
-          {activeTab === 'book' ? (
-            <OrderBook pair={selectedPair} />
-          ) : (
-            <RecentTrades pair={selectedPair} />
-          )}
-        </View>
-      </ScrollView>
+            {/* Market Data Tabs */}
+            <View style={styles.tabContainer}>
+              <TouchableOpacity 
+                style={[styles.tab, activeTab === 'book' && styles.tabActive]}
+                onPress={() => setActiveTab('book')}
+              >
+                <Text style={[styles.tabText, activeTab === 'book' && styles.tabTextActive]}>
+                  Order Book
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.tab, activeTab === 'trades' && styles.tabActive]}
+                onPress={() => setActiveTab('trades')}
+              >
+                <Text style={[styles.tabText, activeTab === 'trades' && styles.tabTextActive]}>
+                  Recent Trades
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Tab Content */}
+            <View style={styles.tabContent}>
+              {activeTab === 'book' ? (
+                <OrderBook pair={selectedPair} />
+              ) : (
+                <RecentTrades pair={selectedPair} />
+              )}
+            </View>
+          </ScrollView>
+        </>
+      )}
     </SafeAreaView>
   );
 }
@@ -129,6 +179,32 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+  },
+  modeSelector: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: COLORS.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  modeButton: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 8,
+    marginHorizontal: 4,
+  },
+  modeButtonActive: {
+    backgroundColor: COLORS.primary + '20',
+  },
+  modeButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.textMuted,
+  },
+  modeButtonTextActive: {
+    color: COLORS.primary,
   },
   pairSelectorContainer: {
     borderBottomWidth: 1,
@@ -195,5 +271,24 @@ const styles = StyleSheet.create({
   tabContent: {
     flex: 1,
     minHeight: 400,
+  },
+  infoCard: {
+    backgroundColor: COLORS.backgroundSecondary,
+    borderRadius: 12,
+    padding: 16,
+    margin: 16,
+    marginTop: 0,
+  },
+  infoTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+    marginBottom: 12,
+  },
+  infoText: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    marginBottom: 6,
+    lineHeight: 18,
   },
 });

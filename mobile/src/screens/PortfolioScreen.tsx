@@ -15,11 +15,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePorto } from '../providers/SimplePortoProvider';
 import { useCLOBContract } from '../hooks/useCLOBContract';
 import { usePortfolio } from '../hooks/usePortfolio';
+import { useUserOrders } from '../hooks/useIndexer';
+import { useUserTrades, useUserActivity } from '../hooks/useUserTrades';
+import { QuickSwapModal } from '../components/QuickSwapModal';
 import { COLORS } from '../config/constants';
+import { formatUnits } from 'viem';
+import { CONTRACTS } from '../config/contracts';
 
 export function PortfolioScreen() {
   const { userAddress, delegationStatus } = usePorto();
-  const { depositToCLOB, withdrawFromCLOB, loading } = useCLOBContract();
+  const { depositToCLOB, withdrawFromCLOB, cancelOrder, loading } = useCLOBContract();
   const { 
     portfolio, 
     loading: loadingPortfolio, 
@@ -30,6 +35,11 @@ export function PortfolioScreen() {
     hasBalance 
   } = usePortfolio();
   
+  // Fetch user orders and trades
+  const { data: ordersData } = useUserOrders(userAddress);
+  const { data: tradesData } = useUserTrades(userAddress);
+  const { data: activityData } = useUserActivity(userAddress);
+  
   const [activeTab, setActiveTab] = useState<'balances' | 'positions' | 'history'>('balances');
   const [depositModalVisible, setDepositModalVisible] = useState(false);
   const [depositToken, setDepositToken] = useState<'USDC' | 'WETH' | 'WBTC'>('USDC');
@@ -39,6 +49,8 @@ export function PortfolioScreen() {
   const [withdrawToken, setWithdrawToken] = useState<'USDC' | 'WETH' | 'WBTC'>('USDC');
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawSelectedPercentage, setWithdrawSelectedPercentage] = useState<number | null>(null);
+  const [swapModalVisible, setSwapModalVisible] = useState(false);
+  const [swapConfig, setSwapConfig] = useState<{ token?: string; action?: 'buy' | 'sell' }>({});
 
   // Use portfolio hook data
   const totalValue = portfolio?.totalValueUSD || 0;
@@ -144,9 +156,9 @@ export function PortfolioScreen() {
           </Text>
           <View style={styles.delegationBadge}>
             <Text style={styles.delegationText}>
-              {delegationStatus === 'ready' ? '✅ Gasless Enabled' : 
-               delegationStatus === 'pending' ? '⏳ Setting up...' : 
-               '❌ Gasless Disabled'}
+              {delegationStatus === 'ready' ? 'Gasless Enabled' : 
+               delegationStatus === 'pending' ? 'Setting up...' : 
+               'Gasless Disabled'}
             </Text>
           </View>
         </View>
@@ -203,20 +215,6 @@ export function PortfolioScreen() {
         <View style={styles.tabContent}>
           {activeTab === 'balances' && (
             <View style={styles.balancesContainer}>
-              <View style={styles.buttonRow}>
-                <TouchableOpacity 
-                  style={[styles.actionButton, styles.depositButton]}
-                  onPress={() => setDepositModalVisible(true)}
-                >
-                  <Text style={styles.actionButtonText}>💰 Deposit to CLOB</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[styles.actionButton, styles.withdrawButton]}
-                  onPress={() => setWithdrawModalVisible(true)}
-                >
-                  <Text style={styles.actionButtonText}>💸 Withdraw from CLOB</Text>
-                </TouchableOpacity>
-              </View>
               
               {loadingBalances ? (
                 <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 40 }} />
@@ -235,34 +233,66 @@ export function PortfolioScreen() {
                   return (
                     <View key={symbol} style={styles.balanceCard}>
                       <View style={styles.balanceHeader}>
-                        <Text style={styles.tokenSymbol}>{symbol}</Text>
-                        <Text style={styles.usdValue}>${tokenInfo.totalValue.toFixed(2)}</Text>
-                      </View>
-                      
-                      <View style={styles.balanceRow}>
-                        <Text style={styles.balanceLabel}>Wallet:</Text>
-                        <Text style={styles.balanceValue}>{parseFloat(tokenInfo.walletBalance).toFixed(4)}</Text>
-                      </View>
-                      
-                      <View style={styles.balanceRow}>
-                        <Text style={styles.balanceLabel}>CLOB Available:</Text>
-                        <Text style={styles.balanceValue}>{parseFloat(tokenInfo.clobBalance).toFixed(4)}</Text>
-                      </View>
-                      
-                      {parseFloat(tokenInfo.clobLocked) > 0 && (
-                        <View style={styles.balanceRow}>
-                          <Text style={styles.balanceLabel}>CLOB Locked:</Text>
-                          <Text style={[styles.balanceValue, styles.lockedValue]}>
-                            {parseFloat(tokenInfo.clobLocked).toFixed(4)}
-                          </Text>
+                        <View>
+                          <Text style={styles.tokenSymbol}>{symbol}</Text>
+                          <Text style={styles.usdValue}>${tokenInfo.totalValue.toFixed(2)}</Text>
                         </View>
-                      )}
+                        <View style={styles.actionButtons}>
+                          <TouchableOpacity 
+                            style={styles.smallButton}
+                            onPress={() => setDepositModalVisible(true)}
+                          >
+                            <Text style={styles.smallButtonText}>Deposit</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity 
+                            style={styles.smallButton}
+                            onPress={() => setWithdrawModalVisible(true)}
+                          >
+                            <Text style={styles.smallButtonText}>Withdraw</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
                       
-                      <View style={[styles.balanceRow, styles.totalRow]}>
-                        <Text style={styles.balanceLabel}>Total:</Text>
-                        <Text style={styles.balanceValue}>
-                          {(parseFloat(tokenInfo.walletBalance) + parseFloat(tokenInfo.clobBalance) + parseFloat(tokenInfo.clobLocked)).toFixed(4)}
-                        </Text>
+                      <View style={styles.balanceDetails}>
+                        <View style={styles.balanceRow}>
+                          <Text style={styles.balanceLabel}>Wallet:</Text>
+                          <Text style={styles.balanceValue}>{parseFloat(tokenInfo.walletBalance).toFixed(4)}</Text>
+                        </View>
+                        
+                        <View style={styles.balanceRow}>
+                          <Text style={styles.balanceLabel}>Available:</Text>
+                          <Text style={styles.balanceValue}>{parseFloat(tokenInfo.clobBalance).toFixed(4)}</Text>
+                        </View>
+                        
+                        {parseFloat(tokenInfo.clobLocked) > 0 && (
+                          <View style={styles.balanceRow}>
+                            <Text style={styles.balanceLabel}>In Orders:</Text>
+                            <Text style={[styles.balanceValue, styles.lockedValue]}>
+                              {parseFloat(tokenInfo.clobLocked).toFixed(4)}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                      
+                      <View style={styles.tradeButtons}>
+                        <TouchableOpacity 
+                          style={[styles.tradeButton, styles.buyButton]}
+                          onPress={() => {
+                            setSwapConfig({ token: symbol as any, action: 'buy' });
+                            setSwapModalVisible(true);
+                          }}
+                        >
+                          <Text style={styles.tradeButtonText}>Buy</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                          style={[styles.tradeButton, styles.sellButton]}
+                          onPress={() => {
+                            setSwapConfig({ token: symbol as any, action: 'sell' });
+                            setSwapModalVisible(true);
+                          }}
+                        >
+                          <Text style={styles.tradeButtonText}>Sell</Text>
+                        </TouchableOpacity>
                       </View>
                     </View>
                   );
@@ -272,20 +302,126 @@ export function PortfolioScreen() {
           )}
           
           {activeTab === 'positions' && (
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>📊 No open positions</Text>
-              <Text style={styles.emptySubtext}>Start trading to see your positions here</Text>
+            <View style={styles.positionsContainer}>
+              {(() => {
+                // Filter for only active orders (ACTIVE or PARTIALLY_FILLED)
+                const activeOrders = ordersData?.cLOBOrders?.items?.filter((order: any) => 
+                  order.status === 'ACTIVE' || order.status === 'PARTIALLY_FILLED'
+                ) || [];
+                
+                if (activeOrders.length > 0) {
+                  return activeOrders.map((order: any) => {
+                    const handleCancelOrder = async () => {
+                      Alert.alert(
+                        'Cancel Order',
+                        'Are you sure you want to cancel this order?',
+                        [
+                          { text: 'No', style: 'cancel' },
+                          {
+                            text: 'Yes',
+                            onPress: async () => {
+                              const result = await cancelOrder(
+                                BigInt(order.id)
+                              );
+                              if (result.success) {
+                                Alert.alert('Success', 'Order cancelled successfully');
+                                handleRefresh();
+                              } else {
+                                Alert.alert('Error', result.error || 'Failed to cancel order');
+                              }
+                            },
+                          },
+                        ]
+                      );
+                    };
+                    
+                    return (
+                      <View key={order.id} style={styles.positionCard}>
+                        <View style={styles.positionHeader}>
+                          <View>
+                            <Text style={styles.positionType}>
+                              {order.orderType} {order.bookId === '1' ? 'WETH/USDC' : 'WBTC/USDC'}
+                            </Text>
+                            <Text style={[
+                              styles.positionStatus,
+                              order.status === 'PARTIALLY_FILLED' && { color: COLORS.warning }
+                            ]}>
+                              {order.status === 'ACTIVE' ? 'OPEN' : order.status}
+                            </Text>
+                          </View>
+                          <TouchableOpacity 
+                            style={styles.cancelButton}
+                            onPress={handleCancelOrder}
+                            disabled={loading}
+                          >
+                            <Text style={styles.cancelButtonText}>Cancel</Text>
+                          </TouchableOpacity>
+                        </View>
+                        <View style={styles.positionDetails}>
+                          <Text style={styles.positionText}>Price: ${formatUnits(BigInt(order.price || '0'), 6)}</Text>
+                          <Text style={styles.positionText}>Amount: {formatUnits(BigInt(order.amount || '0'), 18)}</Text>
+                          <Text style={styles.positionText}>Filled: {formatUnits(BigInt(order.filled || '0'), 18)}</Text>
+                          <Text style={styles.positionText}>Remaining: {formatUnits(BigInt(order.remaining || '0'), 18)}</Text>
+                        </View>
+                      </View>
+                    );
+                  });
+                } else {
+                  return (
+                    <View style={styles.emptyContainer}>
+                      <Text style={styles.emptyText}>No active positions</Text>
+                      <Text style={styles.emptySubtext}>Your open orders will appear here</Text>
+                    </View>
+                  );
+                }
+              })()}
             </View>
           )}
           
           {activeTab === 'history' && (
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>📜 No trading history</Text>
-              <Text style={styles.emptySubtext}>Your completed trades will appear here</Text>
+            <View style={styles.historyContainer}>
+              {activityData?.userActivitys?.items && activityData.userActivitys.items.length > 0 ? (
+                activityData.userActivitys.items.map((activity: any) => (
+                  <View key={activity.id} style={styles.historyCard}>
+                    <View style={styles.historyHeader}>
+                      <Text style={styles.historyType}>{activity.activityType}</Text>
+                      <Text style={styles.historyTime}>
+                        {new Date(activity.timestamp * 1000).toLocaleString()}
+                      </Text>
+                    </View>
+                    {activity.amount && (
+                      <Text style={styles.historyText}>
+                        Amount: {formatUnits(BigInt(activity.amount || '0'), 18)}
+                      </Text>
+                    )}
+                    {activity.price && (
+                      <Text style={styles.historyText}>
+                        Price: {formatUnits(BigInt(activity.price || '0'), 6)}
+                      </Text>
+                    )}
+                  </View>
+                ))
+              ) : (
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyText}>No trading history</Text>
+                  <Text style={styles.emptySubtext}>Your completed trades will appear here</Text>
+                </View>
+              )}
             </View>
           )}
         </View>
       </ScrollView>
+      
+      {/* Quick Swap Modal */}
+      <QuickSwapModal
+        visible={swapModalVisible}
+        onClose={() => {
+          setSwapModalVisible(false);
+          handleRefresh();
+        }}
+        defaultFromToken={swapConfig.token as any}
+        defaultAction={swapConfig.action}
+      />
       
       {/* Deposit Modal */}
       <Modal
@@ -630,7 +766,50 @@ const styles = StyleSheet.create({
   balanceHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  balanceDetails: {
     marginBottom: 12,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  smallButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: COLORS.backgroundSecondary,
+    borderRadius: 6,
+  },
+  smallButtonText: {
+    fontSize: 12,
+    color: COLORS.textPrimary,
+    fontWeight: '500',
+  },
+  tradeButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  tradeButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  buyButton: {
+    backgroundColor: COLORS.success + '20',
+  },
+  sellButton: {
+    backgroundColor: COLORS.error + '20',
+  },
+  tradeButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
   },
   tokenSymbol: {
     fontSize: 18,
@@ -675,6 +854,82 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.textSecondary,
     textAlign: 'center',
+  },
+  positionsContainer: {
+    padding: 16,
+  },
+  positionCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  positionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    alignItems: 'flex-start',
+  },
+  positionType: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  positionStatus: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    textTransform: 'uppercase',
+    marginTop: 2,
+  },
+  cancelButton: {
+    backgroundColor: COLORS.error + '20',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  cancelButtonText: {
+    fontSize: 12,
+    color: COLORS.error,
+    fontWeight: '600',
+  },
+  positionDetails: {
+    gap: 4,
+  },
+  positionText: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+  },
+  historyContainer: {
+    padding: 16,
+  },
+  historyCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  historyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  historyType: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  historyTime: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+  },
+  historyText: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginBottom: 2,
   },
   modalOverlay: {
     flex: 1,

@@ -11,7 +11,6 @@ import { logInfo } from './src/utils/logger';
 import { SetupScreen } from './src/screens/SetupScreen';
 import { TradingScreen } from './src/screens/TradingScreen';
 import { PortfolioScreen } from './src/screens/PortfolioScreen';
-import { MarketsScreen } from './src/screens/MarketsScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 
 // Import providers
@@ -27,7 +26,6 @@ function TabBarIcon({ name, focused }: { name: string; focused: boolean }) {
   const icons: { [key: string]: string } = {
     Trading: '📊',
     Portfolio: '💼',
-    Markets: '📈',
     Settings: '⚙️',
   };
   
@@ -79,13 +77,6 @@ function MainTabs() {
         component={PortfolioScreen}
         options={{
           headerTitle: 'Portfolio',
-        }}
-      />
-      <Tab.Screen 
-        name="Markets" 
-        component={MarketsScreen}
-        options={{
-          headerTitle: 'Markets',
         }}
       />
       <Tab.Screen 

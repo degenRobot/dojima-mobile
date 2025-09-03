@@ -122,7 +122,7 @@ export function usePortfolio() {
       
       // Check if result is valid
       if (!result || result === '0x') {
-        logWarn('usePortfolio', 'Empty result from CLOB balance call', { userAddr, tokenAddress });
+        logDebug('usePortfolio', 'Empty result from CLOB balance call', { userAddr, tokenAddress });
         return { available: 0n, locked: 0n };
       }
       
@@ -171,6 +171,11 @@ export function usePortfolio() {
           continue; // Skip non-token contracts
         }
         
+        // Skip if token doesn't have decimals (not a token contract)
+        if (!('decimals' in token)) {
+          continue;
+        }
+        
         // Get wallet balance
         const walletBalance = await getTokenBalance(token.address, userAddress);
         
@@ -195,16 +200,17 @@ export function usePortfolio() {
         }
         
         // Format balances
+        const decimals = 'decimals' in token ? token.decimals : 18;
         const formatted: TokenBalance = {
           symbol,
           address: token.address,
-          decimals: token.decimals,
+          decimals: decimals,
           walletBalanceRaw: walletBalance,
-          walletBalance: formatUnits(walletBalance, token.decimals),
+          walletBalance: formatUnits(walletBalance, decimals),
           clobBalanceRaw: clobBalances.available || 0n,
-          clobBalance: formatUnits(clobBalances.available || 0n, token.decimals),
+          clobBalance: formatUnits(clobBalances.available || 0n, decimals),
           clobLockedRaw: clobBalances.locked || 0n,
-          clobLocked: formatUnits(clobBalances.locked || 0n, token.decimals),
+          clobLocked: formatUnits(clobBalances.locked || 0n, decimals),
           totalValue: 0, // Will calculate below
         };
         
